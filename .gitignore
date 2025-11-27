@@ -1,0 +1,47 @@
+# Cairo / Scarb
+target/
+Scarb.lock
+
+# Noir
+circuits/**/target/
+circuits/**/Prover.toml
+circuits/**/Verifier.toml
+
+# Garaga generated (keep verifier, ignore temp files)
+*.vk
+*.proof
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+venv310/
+*.egg-info/
+current_troubleshooting.md
+explainer.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Foundry
+.snfoundry_cache/
+node_modules/
+
+# Environment
+.env
+.env.localquickstart/
+quickstart/
+quickstart/

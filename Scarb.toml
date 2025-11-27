@@ -1,0 +1,28 @@
+[package]
+name = "sp_strk"
+version = "0.1.0"
+edition = "2024_07"
+
+[dependencies]
+# Use the modular approach for v3
+starknet = "2.13.1"
+openzeppelin_token = { git = "https://github.com/OpenZeppelin/cairo-contracts", tag = "v3.0.0-alpha.3" }
+openzeppelin_access = { git = "https://github.com/OpenZeppelin/cairo-contracts", tag = "v3.0.0-alpha.3" }
+openzeppelin_upgrades = { git = "https://github.com/OpenZeppelin/cairo-contracts", tag = "v3.0.0-alpha.3" }
+openzeppelin_security = { git = "https://github.com/OpenZeppelin/cairo-contracts", tag = "v3.0.0-alpha.3" }
+openzeppelin_interfaces = { git = "https://github.com/OpenZeppelin/cairo-contracts", tag = "v3.0.0-alpha.3" }
+openzeppelin_introspection = { git = "https://github.com/OpenZeppelin/cairo-contracts", tag = "v3.0.0-alpha.3" }
+
+[dev-dependencies]
+snforge_std = "0.52.0"
+assert_macros = "2.13.1"
+
+[[target.starknet-contract]]
+sierra = true
+casm = true
+
+[scripts]
+test = "snforge test"
+
+[tool.scarb]
+allow-prebuilt-plugins = ["snforge_std"]
