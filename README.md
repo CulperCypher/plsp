@@ -1,18 +1,41 @@
-Private Liquid Staking Protocol
+# Private Liquid Staking Protocol
 
-Built a spSTRK.cairo contract with function to interact with noir circuits. 
+A privacy-preserving liquid staking protocol for Starknet, built with Cairo and Noir ZK circuits.
 
-One route for the user is to stake via a privacy circuit.  Save a note and can later either withdraw a liquid asset of spSTRK or thye can choose to unstake their funds by requesting an unlock, waiting a period, and then claiming the unlock.  The withdrawals can go to any wallet.  The user could withdraw to a wallet with no history for mor eprivacy. 
+## Overview
 
-There is also a standard publi facing set of functions where user can interact with a walelt int he normal fashion.  
+spSTRK is an ERC-4626 liquid staking token that allows users to stake STRK while maintaining liquidity. The protocol includes privacy features via zero-knowledge proofs.
 
-There is validator logic and functions for autostaking to validator pools and maintaning 10% contract liquidity.  
+## Features
 
-The rewards from the pool are claimed from the contract and added to the contract increasing the share value of spSTRK holders.  
+### Privacy Route
+- Stake via ZK circuit and save a private note
+- Withdraw liquid spSTRK to any wallet, or unstake by requesting an unlock
+- Withdrawals can go to fresh wallets with no transaction history for enhanced privacy
 
-The contract is upgradeable and ownable.  It is erc20:erc4626.  
+### Public Route
+- Standard staking interface for users who prefer traditional wallet interactions
 
-It has variables that can be set for a dev fee a dao fee on rewards with a fee cap o 10%.  These are accounted for and withdrawable by owner. 
+### Validator Delegation
+- Auto-delegation to validator pools
+- Maintains 10% liquid buffer in contract for withdrawals
 
-The deployed contract is at 0x05efc624f4f0afb75bd6a57b35a0d2fb270c6eb0cea0e3f7dc36aefe9681e509
+### Rewards
+- Staking rewards are claimed and added to the pool
+- Increases the share value of all spSTRK holders
 
+### Contract Properties
+- Upgradeable and Ownable
+- ERC-20 / ERC-4626 compliant
+- Configurable dev and DAO fees on rewards (capped at 10%)
+
+## Deployment
+
+**Starknet Sepolia:** `0x05efc624f4f0afb75bd6a57b35a0d2fb270c6eb0cea0e3f7dc36aefe9681e509`
+
+## Roadmap
+
+- [ ] Integrate cross-chain bridge into staking logic
+- [ ] Integrate Noir Circuits for private deposits
+- [ ] Integrate Noir Circuits for private withdrawal of spSTRK or STRK
+- [ ] Integrate a frontend UI for privacy staking  
