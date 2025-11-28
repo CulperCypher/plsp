@@ -6,6 +6,8 @@ A privacy-preserving liquid staking protocol for Starknet, built with Cairo and 
 
 spSTRK is an ERC-4626 liquid staking token that allows users to stake STRK while maintaining liquidity. The protocol includes privacy features via zero-knowledge proofs.
 
+The privacy features extend standard ERC-4626 liquid staking with zero-knowledge proofs, enabling private deposits and withdrawals.
+ 
 ## Features
 
 ### Privacy Route

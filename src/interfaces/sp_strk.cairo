@@ -129,15 +129,6 @@ pub trait IPrivacyWithdrawal<TContractState> {
         blinding: felt252     // Still needed for future use
     ) -> u256;
     
-    /// Withdraw privately using a zero-knowledge proof
-    fn private_withdraw(
-        ref self: TContractState,
-        proof: Span<felt252>,
-        nullifier: u256,
-        recipient: ContractAddress,
-        amount: u256,
-    );
-    
     /// Check if a nullifier has been used
     fn is_nullifier_used(self: @TContractState, nullifier: u256) -> bool;
     

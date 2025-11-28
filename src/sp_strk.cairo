@@ -923,9 +923,8 @@ pub mod spSTRK {
             assert(request_index < request_count, Errors::INVALID_REQUEST_INDEX);
 
             let request = self.unlock_requests.entry((user, request_index)).read();
-            assert(request.expiry_time != 0, Errors::REQUEST_NOT_EXIST);
-
-            // Validate unlock request
+            
+            // Validate unlock request exists
             assert(request.expiry_time != 0, Errors::REQUEST_NOT_EXIST);
             // Ensure request has not expired
             assert(request.expiry_time >= get_block_timestamp(), Errors::REQUEST_EXPIRED);
@@ -1002,9 +1001,6 @@ pub mod spSTRK {
             assert(request.expiry_time != 0, Errors::REQUEST_NOT_EXIST);
 
             let strk_amount = request.strk_amount;
-
-            // Ensure a valid unlock request exists
-            assert(request.expiry_time != 0, Errors::REQUEST_NOT_EXIST);
 
             self.total_locked_in_unlocks.write(self.total_locked_in_unlocks.read() - strk_amount);
 
@@ -1910,10 +1906,6 @@ pub mod spSTRK {
             // Insert into Merkle tree and update root
             self._insert_commitment(commitment);
             
-            // Increment commitment count
-            let count = self.commitment_count.read();
-            self.commitment_count.write(count + 1);
-            
             // Update locked funds
             self.total_locked_in_unlocks.write(
                 self.total_locked_in_unlocks.read() + strk_amount
@@ -1931,127 +1923,6 @@ pub mod spSTRK {
             });
 
             commitment
-        }
-        
-        /// Withdraw privately using a zero-knowledge proof
-        /// # Arguments
-        /// * `proof` - The Noir proof with hints (from Garaga calldata generation)
-        /// * `nullifier` - Unique nullifier to prevent double-spending
-        /// * `recipient` - Address to receive the withdrawn STRK
-        /// * `amount` - Amount of STRK to withdraw
-        fn private_withdraw(
-            ref self: ContractState,
-            proof: Span<felt252>,
-            nullifier: u256,
-            recipient: ContractAddress,
-            amount: u256,
-        ) {
-            self.pausable.assert_not_paused();
-            self.reentrancy_guard.start();
-            assert(self.privacy_enabled.read(), 'Privacy not enabled');
-            
-            // Verify nullifier hasn't been used (prevents double-spending)
-            assert(
-                !self.used_nullifiers.entry(nullifier).read(),
-                'Nullifier already used'
-            );
-            
-            // Call the Garaga verifier to verify the Noir proof
-            let verifier = IUltraStarknetHonkVerifierDispatcher { 
-                contract_address: self.unlock_verifier.read() 
-            };
-            
-            let verification_result = verifier.verify_ultra_starknet_honk_proof(proof);
-            
-            // Check if proof is valid
-            assert(verification_result.is_some(), 'Invalid proof');
-            
-            // Extract public inputs from verification result
-            let public_inputs = verification_result.unwrap();
-            
-            // Verify public inputs match expected values
-            // Public inputs from Noir circuit:
-            // [0] commitment, [1] nullifier, [2] assets, [3] shares, 
-            // [4] total_assets, [5] total_supply, [6] current_time, 
-            // [7] unlock_period, [8] merkle_root, [9] note_index
-            
-            // Verify nullifier matches
-            let proof_nullifier: u256 = *public_inputs.at(1);
-            assert(proof_nullifier == nullifier, 'Nullifier mismatch');
-            
-            // Verify commitment exists (was created via create_commitment)
-            // The ZK proof already verified Merkle tree membership
-            let proof_commitment_low: u128 = (*public_inputs.at(0)).try_into().unwrap();
-            let commitment_u256 = u256 { low: proof_commitment_low, high: 0 };
-            assert(self.commitments.entry(commitment_u256).read(), 'Commitment not found');
-            
-            // ========== NEW SECURITY CHECKS ==========
-            
-            // Verify assets (amount) from proof matches the withdrawal amount
-            let proof_assets: u256 = (*public_inputs.at(2)).try_into().unwrap();
-            assert(proof_assets == amount, 'Amount mismatch');
-            
-            // Verify shares from proof (stored for validation)
-            let _proof_shares: u256 = (*public_inputs.at(3)).try_into().unwrap();
-            
-            // Verify total_assets from proof matches current contract state
-            let proof_total_assets: u256 = (*public_inputs.at(4)).try_into().unwrap();
-            assert(
-                proof_total_assets == self.total_pooled_STRK.read(), 
-                'Total assets mismatch'
-            );
-            
-            // Verify total_supply from proof matches current ERC20 supply
-            let proof_total_supply: u256 = (*public_inputs.at(5)).try_into().unwrap();
-            assert(
-                proof_total_supply == self.erc20.total_supply(), 
-                'Total supply mismatch'
-            );
-            
-            // Verify current_time from proof (no expiry - can claim anytime after unlock)
-            let proof_time: u64 = (*public_inputs.at(6)).try_into().unwrap();
-            let current_time = get_block_timestamp();
-            // Just verify proof time is not in the future
-            assert(proof_time <= current_time, 'Invalid proof time');
-
-            // Verify unlock_period from proof matches contract config
-            let proof_unlock_period: u64 = (*public_inputs.at(7)).try_into().unwrap();
-            assert(proof_unlock_period == self.unlock_period.read(), 'Unlock period mismatch');
-            
-            // Verify merkle_root from proof matches current root
-            let proof_merkle_root: felt252 = (*public_inputs.at(8)).try_into().unwrap();
-            assert(
-                proof_merkle_root == self.privacy_merkle_root.read(),
-                'Merkle root mismatch'
-            );
-            
-            // ========== END NEW SECURITY CHECKS ==========
-            
-            // Mark nullifier as used
-            self.used_nullifiers.entry(nullifier).write(true);
-            
-            // Verify contract has enough balance
-            assert(
-                self._strk_balance_of(get_contract_address()) >= amount,
-                Errors::INSUFFICIENT_STARK
-            );
-            
-            // Update accounting
-            self.total_locked_in_unlocks.write(
-                self.total_locked_in_unlocks.read() - amount
-            );
-            
-            // Transfer STRK to recipient
-            self._strk_transfer(get_contract_address(), recipient, amount);
-            
-            // Emit event
-            self.emit(PrivateWithdrawal {
-                nullifier,
-                recipient,
-                amount,
-            });
-            
-            self.reentrancy_guard.end();
         }
         
         /// Check if a nullifier has been used
@@ -2139,12 +2010,8 @@ pub mod spSTRK {
             // Use one pending deposit (doesn't reveal which user!)
             self.pending_private_deposits.entry(amount).write(pending - 1);
             
-            // Store commitment
-            self.commitments.entry(commitment).write(true);
+            // Store commitment and insert into Merkle tree
             self._insert_commitment(commitment);
-            
-            let count = self.commitment_count.read();
-            self.commitment_count.write(count + 1);
             
             // Update accounting
             self.total_pooled_STRK.write(self.total_pooled_STRK.read() + amount);
