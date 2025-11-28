@@ -1742,6 +1742,7 @@ pub mod spSTRK {
         }
 
         /// Auto-delegate excess STRK to validator (maintaining 10% buffer)
+        /// Only delegates based on tracked deposits, ignores extra liquidity in contract
         fn _auto_delegate_to_validator(ref self: ContractState) {
             let validator_pool = self.validator_pool.read();
 
@@ -1751,19 +1752,23 @@ pub mod spSTRK {
             }
 
             let total_pooled = self.total_pooled_STRK.read();
-            let contract_balance = self._strk_balance_of(get_contract_address());
-
-            // Calculate 10% buffer requirement
-            let min_buffer = (total_pooled * 1000) / 10000; // 10%
-
-            // Only delegate if we have excess above buffer
-            if contract_balance > min_buffer {
-                let to_delegate = contract_balance - min_buffer;
-
+            let current_delegated = self.total_delegated_to_validator.read();
+            
+            // Target: delegate 90% of total pooled deposits (keep 10% buffer)
+            let target_delegated = (total_pooled * 9000) / 10000; // 90%
+            
+            // Only delegate if target > current (need to delegate more)
+            if target_delegated > current_delegated {
+                let to_delegate = target_delegated - current_delegated;
+                
+                // Verify contract has enough balance
+                let contract_balance = self._strk_balance_of(get_contract_address());
+                if contract_balance < to_delegate {
+                    return; // Not enough balance, skip delegation
+                }
+                
                 // Only delegate if amount is meaningful (> 0.01 STRK to avoid dust)
                 if to_delegate > 10_000_000_000_000_000 { // 0.01 STRK
-                    let current_delegated = self.total_delegated_to_validator.read();
-
                     if current_delegated == 0 {
                         // First time delegation
                         self._enter_delegation_pool(to_delegate);
