@@ -19,6 +19,11 @@ const transactionSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  action: {                         
+    type: String,
+    enum: ['00', '01'],
+    default: '00',
+  },
   memo: {
     type: String,
     required: true,
@@ -32,7 +37,7 @@ const transactionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'confirmed', 'minted', 'failed'],
+    enum: ['pending', 'confirmed', 'minted', 'staked', 'failed'],
     default: 'pending',
   },
   mintTxHash: {
