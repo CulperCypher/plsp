@@ -33,6 +33,12 @@ pub mod spSTRK {
     };
 
     // ====================================
+    // Merkle Tree Constants
+    // ====================================
+    const MERKLE_TREE_HEIGHT: u8 = 32;
+    const MERKLE_ROOT_HISTORY_SIZE: u32 = 32;
+
+    // ====================================
     // OpenZeppelin components and their implementations
     // ====================================
     component!(path: ERC20Component, storage: erc20, event: ERC20Event);
@@ -189,16 +195,21 @@ pub mod spSTRK {
         // Privacy Layer Storage
         // ====================================
         // Merkle tree root of all commitments
-        privacy_merkle_root: felt252,
+        privacy_merkle_root: u256,
+        // Next leaf index to assign when inserting commitments
+        next_leaf_index: u256,
         // Track used nullifiers to prevent double-spending (u256 to hold full bn254 field elements)
         used_nullifiers: Map<u256, bool>,
         // Track valid commitments (u256 to hold full BN254 field elements)
         commitments: Map<u256, bool>,
-        // Commitment count for Merkle tree indexing
-        commitment_count: u64,
+        // Buffer of recent merkle roots for proof tolerance
+        recent_roots: Map<u32, u256>,
+        root_history_head: u32,
+        root_history_len: u32,
         // Merkle tree levels (stores intermediate hashes)
         // Level 0 = leaves (commitments), Level 1 = first hash level, etc.
-        merkle_tree: Map<(u8, u64), felt252>,
+        // Using u256 to hold full BN254 field elements from Noir circuits
+        merkle_tree: Map<(u8, u64), u256>,
         // Unlock verifier contract address (for private withdrawal proofs)
         unlock_verifier: ContractAddress,
         // Privacy features enabled flag
@@ -370,9 +381,10 @@ pub mod spSTRK {
     struct CommitmentCreated {
         #[key]
         commitment: u256,
+        leaf_index: u256,
         sp_strk_amount: u256,
         strk_amount: u256,
-        merkle_root: felt252,
+        merkle_root: u256,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -400,8 +412,9 @@ pub mod spSTRK {
     struct BridgeCommitmentCreated {
         #[key]
         commitment: u256,
+        leaf_index: u256,
         strk_amount: u256,
-        merkle_root: felt252,
+        merkle_root: u256,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -414,11 +427,17 @@ pub mod spSTRK {
     struct PrivateCommitmentCreated {
         #[key]
         commitment: u256,
+        leaf_index: u256,
         amount: u256,
         shares: u256,
-        merkle_root: felt252,
+        merkle_root: u256,
     }
 
+    #[derive(Drop, starknet::Event)]
+    struct MerkleRootSubmitted {
+        #[key]
+        root: u256,
+    }
 
     #[event]
     #[derive(Drop, starknet::Event)]
@@ -452,6 +471,7 @@ pub mod spSTRK {
         BridgeCommitmentCreated: BridgeCommitmentCreated,
         DepositIntentMarked: DepositIntentMarked,
         PrivateCommitmentCreated: PrivateCommitmentCreated,
+        MerkleRootSubmitted: MerkleRootSubmitted,
         #[flat]
         ERC20Event: ERC20Component::Event,
         #[flat]
@@ -1609,6 +1629,21 @@ pub mod spSTRK {
         fn get_deposit_verifier(self: @ContractState) -> ContractAddress {
             self.deposit_verifier.read()
         }
+
+        /// Submit a Merkle root computed by the indexer
+        /// The indexer uses BN254 Poseidon (matching Noir circuits) to compute the tree.
+        /// This is necessary because Starknet uses STARK Poseidon which is incompatible.
+        /// # Arguments
+        /// * `root` - The Merkle root computed off-chain by the indexer
+        /// # Access Control
+        /// Only the contract owner can call this function (can be extended to trusted indexers)
+        fn submit_merkle_root(ref self: ContractState, root: u256) {
+            self.ownable.assert_only_owner();
+            self._record_root(root);
+            
+            // Emit event for indexer tracking
+            self.emit(MerkleRootSubmitted { root });
+        }
     }
 
     // ====================================
@@ -1866,15 +1901,77 @@ pub mod spSTRK {
         }
         
         
-        /// Store a commitment - Merkle tree verification happens in ZK proof
-        fn _insert_commitment(ref self: ContractState, commitment: u256) {
-            // Simply mark the commitment as valid
-            // The ZK proof will verify Merkle tree membership
-            self.commitments.entry(commitment).write(true);
+        // ====================================
+        // Merkle Tree Helpers
+        // ====================================
+
+        /// Record a new Merkle root into the ring buffer
+        fn _record_root(ref self: ContractState, new_root: u256) {
+            self.privacy_merkle_root.write(new_root);
+
+            let head = self.root_history_head.read();
+            self.recent_roots.entry(head).write(new_root);
             
-            // Increment count for tracking
-            let index = self.commitment_count.read();
-            self.commitment_count.write(index + 1);
+            let next_head = (head + 1_u32) % MERKLE_ROOT_HISTORY_SIZE;
+            self.root_history_head.write(next_head);
+
+            let len = self.root_history_len.read();
+            if len < MERKLE_ROOT_HISTORY_SIZE {
+                self.root_history_len.write(len + 1_u32);
+            }
+        }
+
+        /// Assert that the given root exists in the recent roots buffer
+        fn _assert_known_root(self: @ContractState, root: u256) {
+            let len = self.root_history_len.read();
+            assert(len > 0_u32, 'No roots recorded');
+
+            let head = self.root_history_head.read();
+            let mut i = 0_u32;
+            let mut found = false;
+
+            loop {
+                if i >= len {
+                    break;
+                }
+                let offset = (head + MERKLE_ROOT_HISTORY_SIZE - 1_u32 - i) % MERKLE_ROOT_HISTORY_SIZE;
+                let stored_root = self.recent_roots.entry(offset).read();
+                if stored_root == root {
+                    found = true;
+                    break;
+                }
+                i += 1_u32;
+            };
+
+            assert(found, 'Merkle root unknown');
+        }
+
+        /// Store a commitment (leaf only).
+        /// Merkle tree computation happens off-chain in the indexer using BN254 Poseidon.
+        /// The indexer submits roots via submit_merkle_root().
+        fn _insert_commitment(ref self: ContractState, commitment: u256) -> (u256, u256) {
+            // Mark as valid commitment
+            self.commitments.entry(commitment).write(true);
+
+            // Assign leaf index and bump pointer
+            let leaf_index = self.next_leaf_index.read();
+            self.next_leaf_index.write(leaf_index + 1);
+
+            // Store the commitment at its leaf index (as u256 for BN254 compatibility)
+            self.merkle_tree.entry((0_u8, leaf_index.try_into().unwrap())).write(commitment);
+
+            // NOTE: We do NOT compute the Merkle tree on-chain.
+            // Starknet uses STARK Poseidon, but Noir circuits use BN254 Poseidon.
+            // The indexer computes the correct tree off-chain and submits roots.
+            // Return leaf_index and 0 as placeholder root (real root comes from indexer)
+            (leaf_index, 0_u256)
+        }
+
+        /// Submit a Merkle root from the indexer.
+        /// Only callable by owner (can be extended to multiple trusted indexers).
+        fn _submit_root_from_indexer(ref self: ContractState, root: u256) {
+            // Record the root in history
+            self._record_root(root);
         }
     }
     
@@ -1902,14 +1999,11 @@ pub mod spSTRK {
             let strk_amount = self._sp_strk_to_strk(sp_strk_amount);
             
             // User provides pre-computed commitment from Noir
-            // commitment = poseidon_hash([secret, shares, unlock_time, request_time, blinding])
+            // commitment = poseidon(poseidon(poseidon(secret, shares), deposit_time), blinding)
             // computed off-chain with Noir's Poseidon implementation
             
-            // Store commitment
-            self.commitments.entry(commitment).write(true);
-            
             // Insert into Merkle tree and update root
-            self._insert_commitment(commitment);
+            let (leaf_index, new_root) = self._insert_commitment(commitment);
             
             // Update locked funds
             self.total_locked_in_unlocks.write(
@@ -1922,9 +2016,10 @@ pub mod spSTRK {
             // Emit event
             self.emit(CommitmentCreated {
                 commitment,
+                leaf_index,
                 sp_strk_amount,
                 strk_amount,
-                merkle_root: self.privacy_merkle_root.read(),
+                merkle_root: new_root,
             });
 
             commitment
@@ -1941,7 +2036,7 @@ pub mod spSTRK {
         }
         
         /// Get the current Merkle root
-        fn get_merkle_root(self: @ContractState) -> felt252 {
+        fn get_merkle_root(self: @ContractState) -> u256 {
             self.privacy_merkle_root.read()
         }
 
@@ -2015,9 +2110,6 @@ pub mod spSTRK {
             // Use one pending deposit (doesn't reveal which user!)
             self.pending_private_deposits.entry(amount).write(pending - 1);
             
-            // Store commitment and insert into Merkle tree
-            self._insert_commitment(commitment);
-            
             // Update accounting
             self.total_pooled_STRK.write(self.total_pooled_STRK.read() + amount);
             self.total_locked_in_unlocks.write(
@@ -2027,12 +2119,15 @@ pub mod spSTRK {
             // Mint spSTRK to contract (keeps ERC20 total_supply in sync)
             self.erc20.mint(get_contract_address(), shares);
             
-            // Emit event (no user address!)
+            // Store commitment and insert into Merkle tree (only once!)
+            let (leaf_index, new_root) = self._insert_commitment(commitment);
+
             self.emit(PrivateCommitmentCreated {
                 commitment,
+                leaf_index,
                 amount,
                 shares,
-                merkle_root: self.privacy_merkle_root.read(),
+                merkle_root: new_root,
             });
             
             // Auto-delegate
@@ -2060,15 +2155,8 @@ pub mod spSTRK {
             // Bridge must transfer STRK to this contract first
             // (Bridge should have already done this before calling)
             
-            // Store commitment
-            self.commitments.entry(commitment).write(true);
-            
             // Insert into Merkle tree
-            self._insert_commitment(commitment);
-            
-            // Increment commitment count
-            let count = self.commitment_count.read();
-            self.commitment_count.write(count + 1);
+            let (leaf_index, new_root) = self._insert_commitment(commitment);
             
             // Update accounting
             self.total_pooled_STRK.write(self.total_pooled_STRK.read() + strk_amount);
@@ -2082,8 +2170,9 @@ pub mod spSTRK {
             // Emit event (no user address!)
             self.emit(BridgeCommitmentCreated {
                 commitment,
+                leaf_index,
                 strk_amount,
-                merkle_root: self.privacy_merkle_root.read(),
+                merkle_root: new_root,
             });
             
             // Auto-delegate to validator
@@ -2092,18 +2181,19 @@ pub mod spSTRK {
             commitment
         }
 
-        /// Claim spSTRK - exit privacy for liquidity
+        /// Claim spSTRK - exit privacy for liquidity (INSTANT, no timelock)
+        /// Commitment is hidden - only nullifier is revealed
         fn claim_spSTRK(
             ref self: ContractState,
             proof: Span<felt252>,
-            commitment: u256,
+            nullifier: u256,
             recipient: ContractAddress
         ) {
             self.pausable.assert_not_paused();
             assert(self.privacy_enabled.read(), 'Privacy not enabled');
             
-            // Verify commitment exists
-            assert(self.commitments.entry(commitment).read(), 'Invalid commitment');
+            // Verify nullifier not already used (prevents double-spend)
+            assert(!self.used_nullifiers.entry(nullifier).read(), 'Nullifier already used');
             
             // Verify ZK proof using unlock verifier
             let verifier = IUltraStarknetHonkVerifierDispatcher {
@@ -2113,44 +2203,43 @@ pub mod spSTRK {
             let verification_result = verifier.verify_ultra_starknet_honk_proof(proof);
             assert(verification_result.is_some(), 'Invalid proof');
             
-            // Extract values from proof (unlock circuit order: commitment, nullifier, shares)
-            // Verifier returns 3 u256 values at indices 0, 1, 2
+            // Extract values from proof (new privacy-preserving order: nullifier, shares, root)
+            // Commitment is computed privately inside the circuit - never revealed!
             let public_inputs = verification_result.unwrap();
-            let proof_commitment: u256 = *public_inputs.at(0);
-            let _proof_nullifier: u256 = *public_inputs.at(1);
-            let proof_shares: u256 = *public_inputs.at(2);
+            let proof_nullifier: u256 = *public_inputs.at(0);
+            let proof_shares: u256 = *public_inputs.at(1);
+            let proof_root: u256 = *public_inputs.at(2);
             
-            assert(proof_commitment == commitment, 'Commitment mismatch');
+            assert(proof_nullifier == nullifier, 'Nullifier mismatch');
+            self._assert_known_root(proof_root);
             
-            // Burn commitment (can only claim once)
-            self.commitments.entry(commitment).write(false);
+            // Mark nullifier as used (prevents double-spend)
+            self.used_nullifiers.entry(nullifier).write(true);
             
             // Transfer spSTRK from contract to recipient
-            // (spSTRK was minted to contract during deposit)
-            // Use internal _transfer to send FROM the contract's balance
             self.erc20._transfer(get_contract_address(), recipient, proof_shares);
             
             self.emit(Event::PrivateWithdrawal(PrivateWithdrawal {
-                nullifier: commitment,  // Use commitment as nullifier identifier for claim events
+                nullifier,
                 recipient,
                 amount: proof_shares
             }));
         }
 
         /// Request private unlock - starts time lock for private STRK withdrawal
+        /// Uses nullifier_hash to track unlock time without revealing commitment or nullifier
         fn request_private_unlock(
             ref self: ContractState,
             proof: Span<felt252>,
-            commitment: u256,
+            nullifier_hash: u256,  // hash(nullifier) - doesn't reveal nullifier yet
         ) {
             self.pausable.assert_not_paused();
             assert(self.privacy_enabled.read(), 'Privacy not enabled');
             
-            // Verify commitment exists and hasn't been unlocked yet
-            assert(self.commitments.entry(commitment).read(), 'Invalid commitment');
-            assert(self.private_unlock_times.entry(commitment).read() == 0, 'Already requested');
+            // Verify this nullifier_hash hasn't already requested unlock
+            assert(self.private_unlock_times.entry(nullifier_hash).read() == 0, 'Already requested');
             
-            // Verify ZK proof (proves ownership)
+            // Verify ZK proof (proves ownership of a valid commitment)
             let verifier = IUltraStarknetHonkVerifierDispatcher {
                 contract_address: self.unlock_verifier.read()
             };
@@ -2158,14 +2247,21 @@ pub mod spSTRK {
             let verification_result = verifier.verify_ultra_starknet_honk_proof(proof);
             assert(verification_result.is_some(), 'Invalid proof');
             
-            // Verify commitment from proof matches
+            // Extract public inputs (new order: nullifier, shares, root)
             let public_inputs = verification_result.unwrap();
-            let proof_commitment: u256 = *public_inputs.at(0);
-            assert(proof_commitment == commitment, 'Commitment mismatch');
+            let proof_nullifier: u256 = *public_inputs.at(0);
+            let proof_root: u256 = *public_inputs.at(2);
+            
+            // Verify nullifier_hash matches hash of proof's nullifier
+            let computed_hash: felt252 = core::pedersen::pedersen(proof_nullifier.low.into(), proof_nullifier.high.into());
+            let computed_hash_u256: u256 = computed_hash.into();
+            assert(computed_hash_u256 == nullifier_hash, 'Nullifier hash mismatch');
+            
+            self._assert_known_root(proof_root);
             
             // Set unlock time (current time + unlock period)
             let unlock_time = get_block_timestamp() + self.unlock_period.read();
-            self.private_unlock_times.entry(commitment).write(unlock_time);
+            self.private_unlock_times.entry(nullifier_hash).write(unlock_time);
             
             self.emit(UnlockRequested {
                 user: get_caller_address(),
@@ -2177,23 +2273,23 @@ pub mod spSTRK {
         }
 
         /// Complete private withdrawal after unlock period
+        /// TRUE PRIVACY: Commitment is never revealed, only nullifier
         fn complete_private_withdraw(
             ref self: ContractState,
             proof: Span<felt252>,
-            commitment: u256,
             nullifier: u256,
             recipient: ContractAddress,
-            shares: u256,
         ) {
             self.pausable.assert_not_paused();
             self.reentrancy_guard.start();
             assert(self.privacy_enabled.read(), 'Privacy not enabled');
             
-            // Verify commitment exists
-            assert(self.commitments.entry(commitment).read(), 'Invalid commitment');
+            // Compute nullifier_hash to check unlock was requested
+            let nullifier_hash_felt = core::pedersen::pedersen(nullifier.low.into(), nullifier.high.into());
+            let nullifier_hash: u256 = nullifier_hash_felt.into();
             
             // Verify unlock was requested and time has passed
-            let unlock_time = self.private_unlock_times.entry(commitment).read();
+            let unlock_time = self.private_unlock_times.entry(nullifier_hash).read();
             assert(unlock_time > 0, 'Unlock not requested');
             assert(get_block_timestamp() >= unlock_time, 'Unlock period not passed');
             
@@ -2208,26 +2304,23 @@ pub mod spSTRK {
             let verification_result = verifier.verify_ultra_starknet_honk_proof(proof);
             assert(verification_result.is_some(), 'Invalid proof');
             
+            // Extract public inputs (new privacy-preserving order: nullifier, shares, root)
             let public_inputs = verification_result.unwrap();
-            let proof_commitment: u256 = *public_inputs.at(0);
-            let proof_nullifier: u256 = *public_inputs.at(1);
-            let proof_shares: u256 = *public_inputs.at(2);
+            let proof_nullifier: u256 = *public_inputs.at(0);
+            let proof_shares: u256 = *public_inputs.at(1);
+            let proof_root: u256 = *public_inputs.at(2);
             
-            assert(proof_commitment == commitment, 'Commitment mismatch');
             assert(proof_nullifier == nullifier, 'Nullifier mismatch');
-            assert(proof_shares == shares, 'Shares mismatch');
+            self._assert_known_root(proof_root);
             
             // Calculate STRK amount from shares at current exchange rate
-            let strk_amount = self._sp_strk_to_strk(shares);
+            let strk_amount = self._sp_strk_to_strk(proof_shares);
             
             // Mark nullifier as used
             self.used_nullifiers.entry(nullifier).write(true);
             
-            // Burn commitment
-            self.commitments.entry(commitment).write(false);
-            
             // Burn spSTRK from contract
-            self.erc20.burn(get_contract_address(), shares);
+            self.erc20.burn(get_contract_address(), proof_shares);
             
             // Update accounting
             self.total_pooled_STRK.write(self.total_pooled_STRK.read() - strk_amount);

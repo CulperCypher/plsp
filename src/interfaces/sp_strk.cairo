@@ -121,7 +121,7 @@ pub trait IUltraStarknetHonkVerifier<TContractState> {
 pub trait IPrivacyWithdrawal<TContractState> {
     /// Create a private deposit commitment
     /// The commitment should be pre-computed off-chain using Noir's Poseidon hash
-    /// commitment = poseidon_hash([secret, shares, unlock_time, request_time, blinding])
+    /// commitment = poseidon(poseidon(poseidon(secret, shares), deposit_time), blinding)
     fn create_commitment(
         ref self: TContractState,
         sp_strk_amount: u256,
@@ -136,7 +136,7 @@ pub trait IPrivacyWithdrawal<TContractState> {
     fn get_private_unlock_time(self: @TContractState, commitment: u256) -> u64;
     
     /// Get the current Merkle root
-    fn get_merkle_root(self: @TContractState) -> felt252;
+    fn get_merkle_root(self: @TContractState) -> u256;
 
     /// Step 1: Mark deposit intent (user transfers STRK)
     fn mark_deposit_intent(ref self: TContractState, amount: u256);
@@ -159,30 +159,30 @@ pub trait IPrivacyWithdrawal<TContractState> {
         blinding: felt252
     ) -> u256;
 
-    /// Claim spSTRK tokens - exits privacy for liquidity
-    /// User proves commitment ownership, receives spSTRK to their wallet
+    /// Claim spSTRK tokens - exits privacy for liquidity (INSTANT)
+    /// TRUE PRIVACY: Only nullifier is revealed, commitment stays hidden
     fn claim_spSTRK(
         ref self: TContractState,
         proof: Span<felt252>,
-        commitment: u256,
+        nullifier: u256,
         recipient: ContractAddress
     );
 
     /// Request private unlock - starts time lock for private STRK withdrawal
+    /// Uses nullifier_hash to track without revealing commitment or nullifier
     fn request_private_unlock(
         ref self: TContractState,
         proof: Span<felt252>,
-        commitment: u256
+        nullifier_hash: u256
     );
 
     /// Complete private withdrawal after unlock period
+    /// TRUE PRIVACY: Only nullifier is revealed, commitment stays hidden
     fn complete_private_withdraw(
         ref self: TContractState,
         proof: Span<felt252>,
-        commitment: u256,
         nullifier: u256,
-        recipient: ContractAddress,
-        shares: u256
+        recipient: ContractAddress
     );
 }
 
@@ -212,6 +212,12 @@ pub trait IPrivacyAdmin<TContractState> {
     
     /// Get deposit verifier address
     fn get_deposit_verifier(self: @TContractState) -> ContractAddress;
+
+    /// Submit a Merkle root from the indexer
+    /// The indexer computes the Merkle tree off-chain using BN254 Poseidon
+    /// (which matches the Noir circuit) and submits roots here.
+    /// Only callable by owner (can be extended to multiple trusted indexers).
+    fn submit_merkle_root(ref self: TContractState, root: u256);
 }
 
 // Error messages used in the contract
