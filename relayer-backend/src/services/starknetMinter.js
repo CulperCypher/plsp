@@ -12,109 +12,114 @@ class StarknetMinter {
    * @param {number} zatoshis - Amount of TAZ locked in zatoshis
    */
   async stakeForUser(userAddress, zatoshis) {
-    try {
-      console.log(`\n🥩 Staking flow for user...`);
-      console.log(`   User: ${userAddress}`);
-      console.log(`   TAZ Locked: ${zatoshis / 1e8} TAZ`);
+  try {
+    console.log(`\n🥩 Staking flow for user...`);
+    console.log(`   User: ${userAddress}`);
+    console.log(`   TAZ Locked: ${zatoshis / 1e8} TAZ`);
 
-      // Step 1: Convert TAZ to STRK using real exchange rates
-      const strkWei = await priceOracle.convertZatoshisToSTRK(zatoshis);
-      const strkWeiBigInt = BigInt(strkWei);
-      
-      // Split u256 into low and high u128
-      const strkLow = strkWeiBigInt % (2n ** 128n);
-      const strkHigh = strkWeiBigInt / (2n ** 128n);
+    // Step 1: Convert TAZ to STRK using real exchange rates
+    const strkWei = await priceOracle.convertZatoshisToSTRK(zatoshis);
+    const strkWeiBigInt = BigInt(strkWei);
+    
+    const gasReserve = strkWeiBigInt / 10n;
+    const amountToStake = strkWeiBigInt - gasReserve;
+    
+    console.log(`   💰 Total STRK: ${Number(strkWeiBigInt) / 1e18} STRK`);
+    console.log(`   💰 Staking: ${Number(amountToStake) / 1e18} STRK`);
+    console.log(`   💰 Gas reserve: ${Number(gasReserve) / 1e18} STRK`);
+    
+    const strkLow = amountToStake % (2n ** 128n);
+    const strkHigh = amountToStake / (2n ** 128n);
 
-      const backendAddress = starknetConfig.backendAccountAddress;
-      const spSTRKAddress = starknetConfig.spSTRKContractAddress;
-      const strkTokenAddress = starknetConfig.strkTokenAddress;
+    const backendAddress = starknetConfig.backendAccountAddress;
+    const spSTRKAddress = starknetConfig.spSTRKContractAddress;
+    const strkTokenAddress = starknetConfig.strkTokenAddress;
 
-      console.log(`\n   📍 Step 1/3: Approve STRK to spSTRK contract...`);
-      
-      // Approve STRK to spSTRK contract
-      const approveCmd = `sncast \
-        --account backend_relayer \
-        invoke \
-        --network sepolia \
-        --contract-address ${strkTokenAddress} \
-        --function approve \
-        --calldata ${spSTRKAddress} ${strkLow} ${strkHigh}`;
+    console.log(`\n   📍 Step 1/3: Approve STRK to spSTRK contract...`);
+    
+    // Approve STRK to spSTRK contract
+    const approveCmd = `sncast \
+      --account backend_relayer \
+      invoke \
+      --network sepolia \
+      --contract-address ${strkTokenAddress} \
+      --function approve \
+      --calldata ${spSTRKAddress} ${strkLow} ${strkHigh}`;
 
-      await execAsync(approveCmd);
-      console.log(`   ✅ STRK approved`);
+    await execAsync(approveCmd);
+    console.log(`   ✅ STRK approved`);
 
-      // Wait for approval to confirm
-      await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(resolve => setTimeout(resolve, 10000));
 
-      console.log(`\n   📍 Step 2/3: Stake STRK (backend receives spSTRK)...`);
-      
-      // Call stake() - spSTRK goes to backend wallet
-      const stakeCmd = `sncast \
-        --account backend_relayer \
-        invoke \
-        --network sepolia \
-        --contract-address ${spSTRKAddress} \
-        --function stake \
-        --calldata ${strkLow} ${strkHigh} 0 0`;
+    console.log(`\n   📍 Step 2/3: Stake STRK (backend receives spSTRK)...`);
+    
+    // Call stake() - spSTRK goes to backend wallet
+    const stakeCmd = `sncast \
+      --account backend_relayer \
+      invoke \
+      --network sepolia \
+      --contract-address ${spSTRKAddress} \
+      --function stake \
+      --calldata ${strkLow} ${strkHigh} 0 0`;
 
-      const { stdout: stakeOutput } = await execAsync(stakeCmd);
-      console.log(`   ✅ Staked! Backend received spSTRK`);
+    const { stdout: stakeOutput } = await execAsync(stakeCmd);
+    console.log(`   ✅ Staked! Backend received spSTRK`);
 
-      // Parse stake tx hash
-      let stakeTxHash;
-      const patterns = [
-        /Transaction Hash:\s*(0x[a-fA-F0-9]+)/i,
-        /transaction_hash:\s*(0x[a-fA-F0-9]+)/i,
-        /tx\/([a-fA-F0-9]+)/,
-      ];
+    // Parse stake tx hash
+    let stakeTxHash;
+    const patterns = [
+      /Transaction Hash:\s*(0x[a-fA-F0-9]+)/i,
+      /transaction_hash:\s*(0x[a-fA-F0-9]+)/i,
+      /tx\/([a-fA-F0-9]+)/,
+    ];
 
-      for (const pattern of patterns) {
-        const match = stakeOutput.match(pattern);
-        if (match) {
-          stakeTxHash = match[1].startsWith('0x') ? match[1] : '0x' + match[1];
-          break;
-        }
+    for (const pattern of patterns) {
+      const match = stakeOutput.match(pattern);
+      if (match) {
+        stakeTxHash = match[1].startsWith('0x') ? match[1] : '0x' + match[1];
+        break;
       }
-
-      console.log(`   Stake TX: https://sepolia.starkscan.co/tx/${stakeTxHash}`);
-
-      // Wait for stake to confirm
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      console.log(`\n   📍 Step 3/3: Transfer spSTRK to user...`);
-
-      // Transfer spSTRK from backend to user
-      const transferCmd = `sncast \
-        --account backend_relayer \
-        invoke \
-        --network sepolia \
-        --contract-address ${spSTRKAddress} \
-        --function transfer \
-        --calldata ${userAddress} ${strkLow} ${strkHigh}`;
-
-      const { stdout: transferOutput } = await execAsync(transferCmd);
-      console.log(`   ✅ spSTRK transferred to user!`);
-
-      // Parse transfer tx hash
-      let transferTxHash;
-      for (const pattern of patterns) {
-        const match = transferOutput.match(pattern);
-        if (match) {
-          transferTxHash = match[1].startsWith('0x') ? match[1] : '0x' + match[1];
-          break;
-        }
-      }
-
-      console.log(`\n✅ COMPLETE! User received spSTRK`);
-      console.log(`   Stake TX: https://sepolia.starkscan.co/tx/${stakeTxHash}`);
-      console.log(`   Transfer TX: https://sepolia.starkscan.co/tx/${transferTxHash}`);
-
-      return transferTxHash;
-    } catch (error) {
-      console.error(`   ❌ Error in stake flow:`, error.message);
-      throw error;
     }
+
+    console.log(`   Stake TX: https://sepolia.starkscan.co/tx/${stakeTxHash}`);
+
+    await new Promise(resolve => setTimeout(resolve, 15000));
+
+    console.log(`\n   📍 Step 3/3: Transfer spSTRK to user...`);
+
+    // Transfer spSTRK from backend to user
+    const transferCmd = `sncast \
+      --account backend_relayer \
+      invoke \
+      --network sepolia \
+      --contract-address ${spSTRKAddress} \
+      --function transfer \
+      --calldata ${userAddress} ${strkLow} ${strkHigh}`;
+
+    const { stdout: transferOutput } = await execAsync(transferCmd);
+    console.log(`   ✅ spSTRK transferred to user!`);
+
+    // Parse transfer tx hash
+    let transferTxHash;
+    for (const pattern of patterns) {
+      const match = transferOutput.match(pattern);
+      if (match) {
+        transferTxHash = match[1].startsWith('0x') ? match[1] : '0x' + match[1];
+        break;
+      }
+    }
+
+    console.log(`\n✅ COMPLETE! User received spSTRK`);
+    console.log(`   User got: ${Number(amountToStake) / 1e18} spSTRK`);
+    console.log(`   Stake TX: https://sepolia.starkscan.co/tx/${stakeTxHash}`);
+    console.log(`   Transfer TX: https://sepolia.starkscan.co/tx/${transferTxHash}`);
+
+    return transferTxHash;
+  } catch (error) {
+    console.error(`   ❌ Error in stake flow:`, error.message);
+    throw error;
   }
+}
 
   /**
    * Mint wTAZ (existing function for action '00')
