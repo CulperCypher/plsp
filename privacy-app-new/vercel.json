@@ -1,0 +1,10 @@
+{
+  "projects": [
+    {
+      "rootDirectory": "privacy-app-new",
+      "buildCommand": "npm run build",
+      "outputDirectory": "dist",
+      "installCommand": "npm install"
+    }
+  ]
+}
