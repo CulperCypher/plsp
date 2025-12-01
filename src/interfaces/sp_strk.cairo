@@ -119,12 +119,12 @@ pub trait IUltraStarknetHonkVerifier<TContractState> {
 // ========== Privacy Layer Interface ==========
 #[starknet::interface]
 pub trait IPrivacyWithdrawal<TContractState> {
-    /// Create a private deposit commitment
-    /// The commitment should be pre-computed off-chain using Noir's Poseidon hash
+    /// Create a private deposit commitment (FIXED DENOMINATION: 10 spSTRK)
+    /// User deposits STRK, gets commitment for exactly 10 spSTRK
     /// commitment = poseidon(poseidon(poseidon(secret, shares), deposit_time), blinding)
     fn create_commitment(
         ref self: TContractState,
-        sp_strk_amount: u256,
+        strk_amount: u256,    // STRK to deposit (must convert to 10-10.5 spSTRK)
         commitment: u256,     // Pre-computed commitment hash (u256 to hold full BN254 field element)
         blinding: felt252     // Still needed for future use
     ) -> u256;
@@ -141,22 +141,28 @@ pub trait IPrivacyWithdrawal<TContractState> {
     /// Step 1: Mark deposit intent (user transfers STRK)
     fn mark_deposit_intent(ref self: TContractState, amount: u256);
 
-    /// Step 2: Create private commitment with ZK proof
+    /// Step 2: Create private commitment with ZK proof (FIXED DENOMINATION: 10 spSTRK)
     fn create_private_commitment(
         ref self: TContractState,
         proof: Span<felt252>,
         commitment: u256,
-        amount: u256,
-        shares: u256
+        strk_amount: u256  // STRK amount (must convert to 10-10.5 spSTRK)
+    );
+
+    /// Single-step private deposit (FIXED DENOMINATION: 10 spSTRK)
+    /// User generates note locally, computes commitment, deposits STRK + commitment atomically
+    fn private_deposit(
+        ref self: TContractState,
+        strk_amount: u256,  // STRK amount (must convert to 10-10.5 spSTRK)
+        commitment: u256
     );
 
     /// Stake from Zcash bridge with private commitment
-    /// Only callable by authorized bridge contract
+    /// Only callable by authorized bridge address
     fn stake_from_bridge_private(
         ref self: TContractState,
         strk_amount: u256,
-        commitment: u256,
-        blinding: felt252
+        commitment: u256
     ) -> u256;
 
     /// Claim spSTRK tokens - exits privacy for liquidity (INSTANT)
