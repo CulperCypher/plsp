@@ -1,5 +1,0 @@
-[witness]
-secret = "0x1234567890abcdef"
-shares = "100000000000000000"
-deposit_time = 1700000001
-blinding = "0x9876543210fedcba"
