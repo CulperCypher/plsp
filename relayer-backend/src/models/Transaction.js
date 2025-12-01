@@ -17,12 +17,17 @@ const transactionSchema = new mongoose.Schema({
   },
   destinationAddress: {
     type: String,
-    required: true,
   },
   action: {                         
     type: String,
-    enum: ['00', '01'],
+    enum: ['00', '01', '02'],
     default: '00',
+  },
+  amountWei: {
+    type: String,
+  },
+  commitment: {
+    type: String,
   },
   memo: {
     type: String,
@@ -37,7 +42,7 @@ const transactionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'confirmed', 'minted', 'staked', 'failed'],
+    enum: ['pending', 'confirmed', 'minted', 'staked', 'private_staked', 'failed'],
     default: 'pending',
   },
   mintTxHash: {
