@@ -1,0 +1,13 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/indexer/:path*",
+      "destination": "/api/indexer/[...path]"
+    }
+  ],
+  "functions": {
+    "api/indexer/[...path].ts": {
+      "runtime": "@vercel/node@3"
+    }
+  }
+}
