@@ -15,6 +15,9 @@ export const config = {
     intervalMs: parseInt(process.env.POLL_INTERVAL_MS) || 30000,
     requiredConfirmations: parseInt(process.env.REQUIRED_CONFIRMATIONS) || 6,
   },
+  bridge: {
+    privateStakeToleranceBps: parseInt(process.env.PRIVATE_STAKE_TOLERANCE_BPS ?? '50'),
+  },
   server: {
     port: parseInt(process.env.PORT) || 3000,
   },

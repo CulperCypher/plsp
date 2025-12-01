@@ -55,11 +55,17 @@ class TransactionMonitor {
           continue; // Already in database
         }
 
-        // Parse memo to get address AND action
+        // Parse memo using unified parser
         const memoData = parseMemo(tx.memo);
+        
+        if (!memoData) {
+          console.log(`⚠️  Skipping tx ${tx.txid}: Invalid memo format`);
+          continue;
+        }
 
-        if (!memoData || !isValidAddress(memoData.address)) {
-          console.log(`⚠️  Skipping tx ${tx.txid}: Invalid memo/address`);
+        // Validate address for non-private actions
+        if (memoData.action !== '02' && !isValidAddress(memoData.address)) {
+          console.log(`⚠️  Skipping tx ${tx.txid}: Invalid address`);
           continue;
         }
 
@@ -68,12 +74,13 @@ class TransactionMonitor {
           txid: tx.txid,
           amount: tx.amount,
           amountZat: tx.amountZat,
-          destinationAddress: memoData.address, 
-          action: memoData.action, 
+          destinationAddress: memoData.address || undefined,
+          action: memoData.action,
           memo: tx.memo,
           confirmations: tx.confirmations,
           blockHeight: tx.blockheight,
           status: "pending",
+          commitment: memoData.commitment || undefined,
         });
 
         await newTx.save();
@@ -81,13 +88,17 @@ class TransactionMonitor {
         console.log(`\n✨ New transaction detected!`);
         console.log(`   TXID: ${tx.txid}`);
         console.log(`   Amount: ${tx.amount} ZEC`);
-        console.log(`   Destination: ${memoData.address}`);
-        console.log(
-          `   Action: ${memoData.action === "01" ? "STAKE" : "MINT"}`
-        ); // ← ADD THIS LINE
-        console.log(
-          `   Confirmations: ${tx.confirmations}/${this.requiredConfirmations}`
-        );
+        
+        const actionLabels = { '00': 'MINT wTAZ', '01': 'PUBLIC STAKE', '02': 'PRIVATE STAKE' };
+        console.log(`   Action: ${actionLabels[memoData.action] || memoData.action}`);
+        
+        if (memoData.address) {
+          console.log(`   Destination: ${memoData.address}`);
+        }
+        if (memoData.commitment) {
+          console.log(`   Commitment: ${memoData.commitment}`);
+        }
+        console.log(`   Confirmations: ${tx.confirmations}/${this.requiredConfirmations}`);
       }
     } catch (error) {
       console.error("Error checking new transactions:", error.message);
@@ -143,27 +154,10 @@ class TransactionMonitor {
     try {
       const action = transaction.action || "00";
 
-      if (action === "01") {
-        // STAKE flow - Convert TAZ to STRK and stake into spSTRK
-        console.log(`\n🥩 Processing STAKE request...`);
-        console.log(`   Amount: ${transaction.amount} TAZ`);
-        console.log(`   User: ${transaction.destinationAddress}`);
-
-        const txHash = await starknetMinter.stakeForUser(
-          transaction.destinationAddress,
-          transaction.amountZat
-        );
-
-        transaction.status = "staked";
-        transaction.mintTxHash = txHash;
-        await transaction.save();
-
-        console.log(`   ✅ Successfully staked into spSTRK!`);
-        console.log(`   Starknet TX: ${txHash}`);
-      } else {
-        // MINT wTAZ flow (default action '00')
-        console.log(`\n🎨 Processing MINT request...`);
-        console.log(`   Amount: ${transaction.amount} wTAZ`);
+      if (action === "00") {
+        // MINT wTAZ flow
+        console.log(`\n🎨 Processing MINT wTAZ request...`);
+        console.log(`   Amount: ${transaction.amount} ZEC → wTAZ`);
         console.log(`   User: ${transaction.destinationAddress}`);
 
         const txHash = await starknetMinter.mint(
@@ -177,6 +171,38 @@ class TransactionMonitor {
 
         console.log(`   ✅ Successfully minted wTAZ!`);
         console.log(`   Starknet TX: ${txHash}`);
+      } else if (action === "01") {
+        // PUBLIC STAKE flow - Convert ZEC to STRK and stake into spSTRK
+        console.log(`\n🥩 Processing PUBLIC STAKE request...`);
+        console.log(`   Amount: ${transaction.amount} ZEC → STRK → spSTRK`);
+        console.log(`   User: ${transaction.destinationAddress}`);
+
+        const txHash = await starknetMinter.stakeForUser(
+          transaction.destinationAddress,
+          transaction.amountZat
+        );
+
+        transaction.status = "staked";
+        transaction.mintTxHash = txHash;
+        await transaction.save();
+
+        console.log(`   ✅ Successfully staked into spSTRK!`);
+        console.log(`   Starknet TX: ${txHash}`);
+      } else if (action === "02") {
+        // PRIVATE STAKE flow - Fixed 10 spSTRK denomination
+        console.log(`\n🕶️ Processing PRIVATE STAKE request (10 spSTRK)...`);
+        console.log(`   Commitment: ${transaction.commitment}`);
+
+        const txHash = await starknetMinter.stakePrivateCommitment(transaction);
+
+        transaction.status = "private_staked";
+        transaction.mintTxHash = txHash;
+        await transaction.save();
+
+        console.log(`   ✅ Private commitment stored on Starknet!`);
+        console.log(`   Starknet TX: ${txHash}`);
+      } else {
+        throw new Error(`Unknown action: ${action}`);
       }
     } catch (error) {
       console.error(`   ❌ Failed:`, error.message);
