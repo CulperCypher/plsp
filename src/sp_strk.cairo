@@ -39,6 +39,14 @@ pub mod spSTRK {
     const MERKLE_ROOT_HISTORY_SIZE: u32 = 32;
 
     // ====================================
+    // Privacy Pool Fixed Denomination (Tornado Cash style)
+    // ====================================
+    // Fixed denomination: 10 spSTRK (10 * 10^18 wei)
+    const PRIVACY_DENOMINATION: u256 = 10_000000000000000000;
+    // Maximum overpay tolerance: 5% above denomination
+    const MAX_OVERPAY_BPS: u256 = 500;
+
+    // ====================================
     // OpenZeppelin components and their implementations
     // ====================================
     component!(path: ERC20Component, storage: erc20, event: ERC20Event);
@@ -439,6 +447,16 @@ pub mod spSTRK {
         root: u256,
     }
 
+    #[derive(Drop, starknet::Event)]
+    struct PrivateDeposit {
+        #[key]
+        commitment: u256,
+        leaf_index: u256,
+        strk_amount: u256,
+        shares: u256,
+        merkle_root: u256,
+    }
+
     #[event]
     #[derive(Drop, starknet::Event)]
     enum Event {
@@ -472,6 +490,7 @@ pub mod spSTRK {
         DepositIntentMarked: DepositIntentMarked,
         PrivateCommitmentCreated: PrivateCommitmentCreated,
         MerkleRootSubmitted: MerkleRootSubmitted,
+        PrivateDeposit: PrivateDeposit,
         #[flat]
         ERC20Event: ERC20Component::Event,
         #[flat]
@@ -1980,10 +1999,12 @@ pub mod spSTRK {
     // ====================================
     #[abi(embed_v0)]
     impl PrivacyWithdrawalImpl of sp_strk::interfaces::sp_strk::IPrivacyWithdrawal<ContractState> {
-        /// Create a commitment for private withdrawal
+        /// Create a commitment for private staking
+        /// FIXED DENOMINATION: User deposits STRK, gets commitment for 10 spSTRK
+        /// Same logic as stake_from_bridge_private but callable by any user
         fn create_commitment(
             ref self: ContractState,
-            sp_strk_amount: u256,
+            strk_amount: u256,
             commitment: u256,
             blinding: felt252
         ) -> u256 {
@@ -1992,35 +2013,46 @@ pub mod spSTRK {
             
             let caller = get_caller_address();
             
-            // Burn spSTRK from user
-            self.erc20.burn(caller, sp_strk_amount);
+            // Transfer STRK from user to contract
+            self._strk_transfer(caller, get_contract_address(), strk_amount);
             
-            // Calculate STRK amount
-            let strk_amount = self._sp_strk_to_strk(sp_strk_amount);
+            // Calculate spSTRK amount from incoming STRK
+            let sp_strk_amount = self._strk_to_sp_strk(strk_amount);
             
-            // User provides pre-computed commitment from Noir
-            // commitment = poseidon(poseidon(poseidon(secret, shares), deposit_time), blinding)
-            // computed off-chain with Noir's Poseidon implementation
+            // SECURITY: Must deposit enough for fixed denomination (10 spSTRK)
+            assert(sp_strk_amount >= PRIVACY_DENOMINATION, 'Deposit too low for 10 spSTRK');
             
-            // Insert into Merkle tree and update root
+            // UX: Reject if overpaying by more than 5% (user mistake protection)
+            let max_acceptable = PRIVACY_DENOMINATION * (10000 + MAX_OVERPAY_BPS) / 10000;
+            assert(sp_strk_amount <= max_acceptable, 'Deposit too high - check amount');
+            
+            // Insert into Merkle tree
             let (leaf_index, new_root) = self._insert_commitment(commitment);
             
-            // Update locked funds
+            // Update accounting (use actual strk_amount received)
+            self.total_pooled_STRK.write(self.total_pooled_STRK.read() + strk_amount);
+            
+            // Lock exactly PRIVACY_DENOMINATION worth of STRK
+            let locked_strk = self._sp_strk_to_strk(PRIVACY_DENOMINATION);
             self.total_locked_in_unlocks.write(
-                self.total_locked_in_unlocks.read() + strk_amount
+                self.total_locked_in_unlocks.read() + locked_strk
             );
-
-            // Reduce total_pooled_STRK when locking (matches public unlock pattern)
-            self.total_pooled_STRK.write(self.total_pooled_STRK.read() - strk_amount);
+            
+            // Mint exactly PRIVACY_DENOMINATION spSTRK to contract (fixed amount)
+            // Any excess STRK stays in pool, benefiting all spSTRK holders
+            self.erc20.mint(get_contract_address(), PRIVACY_DENOMINATION);
 
             // Emit event
             self.emit(CommitmentCreated {
                 commitment,
                 leaf_index,
-                sp_strk_amount,
+                sp_strk_amount: PRIVACY_DENOMINATION,
                 strk_amount,
                 merkle_root: new_root,
             });
+            
+            // Auto-delegate to validator
+            self._auto_delegate_to_validator();
 
             commitment
         }
@@ -2069,25 +2101,33 @@ pub mod spSTRK {
         }
         
         /// Step 2: Create private commitment with ZK proof
-        /// This uses a pending deposit without revealing which user
+        /// FIXED DENOMINATION: Uses pending STRK deposit, creates 10 spSTRK commitment
         /// # Arguments
         /// * `proof` - ZK proof from deposit circuit
         /// * `commitment` - Commitment hash
-        /// * `amount` - Amount being deposited
-        /// * `shares` - Shares to receive
+        /// * `strk_amount` - STRK amount being deposited (must convert to 10-10.5 spSTRK)
         fn create_private_commitment(
             ref self: ContractState,
             proof: Span<felt252>,
             commitment: u256,
-            amount: u256,
-            shares: u256
+            strk_amount: u256
         ) {
             self.pausable.assert_not_paused();
             assert(self.privacy_enabled.read(), 'Privacy not enabled');
             
             // Check pending deposit exists
-            let pending = self.pending_private_deposits.entry(amount).read();
+            let pending = self.pending_private_deposits.entry(strk_amount).read();
             assert(pending > 0, 'No pending deposit');
+            
+            // Calculate spSTRK amount from STRK
+            let sp_strk_amount = self._strk_to_sp_strk(strk_amount);
+            
+            // SECURITY: Must deposit enough for fixed denomination (10 spSTRK)
+            assert(sp_strk_amount >= PRIVACY_DENOMINATION, 'Deposit too low for 10 spSTRK');
+            
+            // UX: Reject if overpaying by more than 5%
+            let max_acceptable = PRIVACY_DENOMINATION * (10000 + MAX_OVERPAY_BPS) / 10000;
+            assert(sp_strk_amount <= max_acceptable, 'Deposit too high - check amount');
             
             // Verify ZK proof
             let verifier = IUltraStarknetHonkVerifierDispatcher {
@@ -2097,36 +2137,37 @@ pub mod spSTRK {
             let verification_result = verifier.verify_ultra_starknet_honk_proof(proof);
             assert(verification_result.is_some(), 'Invalid deposit proof');
             
-            // Verify public inputs from proof match expected values
+            // Verify public inputs from proof (commitment and shares must be fixed denomination)
             let public_inputs = verification_result.unwrap();
             let proof_commitment: u256 = *public_inputs.at(0);
             let proof_shares: u256 = *public_inputs.at(1);
-            let proof_amount: u256 = *public_inputs.at(2);
             
             assert(proof_commitment == commitment, 'Commitment mismatch');
-            assert(proof_shares == shares, 'Shares mismatch');
-            assert(proof_amount == amount, 'Amount mismatch');
+            assert(proof_shares == PRIVACY_DENOMINATION, 'Shares must be 10 spSTRK');
             
             // Use one pending deposit (doesn't reveal which user!)
-            self.pending_private_deposits.entry(amount).write(pending - 1);
+            self.pending_private_deposits.entry(strk_amount).write(pending - 1);
             
             // Update accounting
-            self.total_pooled_STRK.write(self.total_pooled_STRK.read() + amount);
+            self.total_pooled_STRK.write(self.total_pooled_STRK.read() + strk_amount);
+            
+            // Lock exactly PRIVACY_DENOMINATION worth of STRK
+            let locked_strk = self._sp_strk_to_strk(PRIVACY_DENOMINATION);
             self.total_locked_in_unlocks.write(
-                self.total_locked_in_unlocks.read() + amount
+                self.total_locked_in_unlocks.read() + locked_strk
             );
             
-            // Mint spSTRK to contract (keeps ERC20 total_supply in sync)
-            self.erc20.mint(get_contract_address(), shares);
+            // Mint exactly PRIVACY_DENOMINATION spSTRK to contract
+            self.erc20.mint(get_contract_address(), PRIVACY_DENOMINATION);
             
-            // Store commitment and insert into Merkle tree (only once!)
+            // Store commitment and insert into Merkle tree
             let (leaf_index, new_root) = self._insert_commitment(commitment);
 
             self.emit(PrivateCommitmentCreated {
                 commitment,
                 leaf_index,
-                amount,
-                shares,
+                amount: strk_amount,
+                shares: PRIVACY_DENOMINATION,
                 merkle_root: new_root,
             });
             
@@ -2134,38 +2175,104 @@ pub mod spSTRK {
             self._auto_delegate_to_validator();
         }
 
-        /// Stake from bridge with private commitment
-        fn stake_from_bridge_private(
+        /// Single-step private deposit (no front-running risk)
+        /// FIXED DENOMINATION: User deposits STRK, gets commitment for 10 spSTRK
+        /// # Arguments
+        /// * `strk_amount` - Amount of STRK to deposit (must convert to 10-10.5 spSTRK)
+        /// * `commitment` - Pre-computed commitment from user's note
+        fn private_deposit(
             ref self: ContractState,
             strk_amount: u256,
-            commitment: u256,
-            blinding: felt252
-        ) -> u256 {
-            self.ownable.assert_only_owner();
+            commitment: u256
+        ) {
             self.pausable.assert_not_paused();
             assert(self.privacy_enabled.read(), 'Privacy not enabled');
             
-            // Validate amount
-            assert(strk_amount >= self.min_stake_amount.read(), Errors::BELOW_MINIMUM_STAKE);
+            let caller = get_caller_address();
             
-            // Calculate spSTRK amount
+            // Transfer STRK from user to contract
+            self._strk_transfer(caller, get_contract_address(), strk_amount);
+            
+            // Calculate spSTRK amount from incoming STRK
             let sp_strk_amount = self._strk_to_sp_strk(strk_amount);
-            assert(sp_strk_amount > 0, Errors::INSUFFICIENT_SHARES);
             
-            // Bridge must transfer STRK to this contract first
-            // (Bridge should have already done this before calling)
+            // SECURITY: Must deposit enough for fixed denomination (10 spSTRK)
+            assert(sp_strk_amount >= PRIVACY_DENOMINATION, 'Deposit too low for 10 spSTRK');
+            
+            // UX: Reject if overpaying by more than 5%
+            let max_acceptable = PRIVACY_DENOMINATION * (10000 + MAX_OVERPAY_BPS) / 10000;
+            assert(sp_strk_amount <= max_acceptable, 'Deposit too high - check amount');
+            
+            // Update accounting (use actual strk_amount received)
+            self.total_pooled_STRK.write(self.total_pooled_STRK.read() + strk_amount);
+            
+            // Lock exactly PRIVACY_DENOMINATION worth of STRK
+            let locked_strk = self._sp_strk_to_strk(PRIVACY_DENOMINATION);
+            self.total_locked_in_unlocks.write(
+                self.total_locked_in_unlocks.read() + locked_strk
+            );
+            
+            // Mint exactly PRIVACY_DENOMINATION spSTRK to contract
+            self.erc20.mint(get_contract_address(), PRIVACY_DENOMINATION);
+            
+            // Insert commitment into Merkle tree
+            let (leaf_index, new_root) = self._insert_commitment(commitment);
+            
+            // Emit event (deposit is linkable, withdrawal is private)
+            self.emit(PrivateDeposit {
+                commitment,
+                leaf_index,
+                strk_amount,
+                shares: PRIVACY_DENOMINATION,
+                merkle_root: new_root,
+            });
+            
+            // Auto-delegate to validator
+            self._auto_delegate_to_validator();
+        }
+
+        /// Stake from bridge with private commitment
+        /// FIXED DENOMINATION: Converts STRK to spSTRK, must be within 0-5% of 10 spSTRK
+        /// Only callable by authorized Zcash bridge address
+        fn stake_from_bridge_private(
+            ref self: ContractState,
+            strk_amount: u256,
+            commitment: u256
+        ) -> u256 {
+            self.pausable.assert_not_paused();
+            assert(self.privacy_enabled.read(), 'Privacy not enabled');
+            
+            // Only the authorized bridge can call this
+            let caller = get_caller_address();
+            let bridge = self.zcash_bridge.read();
+            assert(!bridge.is_zero(), 'Bridge not set');
+            assert(caller == bridge, 'Only bridge can call');
+            
+            // Calculate spSTRK amount from incoming STRK
+            let sp_strk_amount = self._strk_to_sp_strk(strk_amount);
+            
+            // SECURITY: Must deposit enough for fixed denomination (10 spSTRK)
+            assert(sp_strk_amount >= PRIVACY_DENOMINATION, 'Deposit too low for 10 spSTRK');
+            
+            // UX: Reject if overpaying by more than 5% (user mistake protection)
+            let max_acceptable = PRIVACY_DENOMINATION * (10000 + MAX_OVERPAY_BPS) / 10000;
+            assert(sp_strk_amount <= max_acceptable, 'Deposit too high - check amount');
             
             // Insert into Merkle tree
             let (leaf_index, new_root) = self._insert_commitment(commitment);
             
-            // Update accounting
+            // Update accounting (use actual strk_amount received)
             self.total_pooled_STRK.write(self.total_pooled_STRK.read() + strk_amount);
+            
+            // Lock exactly PRIVACY_DENOMINATION worth of STRK
+            let locked_strk = self._sp_strk_to_strk(PRIVACY_DENOMINATION);
             self.total_locked_in_unlocks.write(
-                self.total_locked_in_unlocks.read() + strk_amount
+                self.total_locked_in_unlocks.read() + locked_strk
             );
             
-            // Mint spSTRK to contract (keeps ERC20 total_supply in sync)
-            self.erc20.mint(get_contract_address(), sp_strk_amount);
+            // Mint exactly PRIVACY_DENOMINATION spSTRK to contract (fixed amount)
+            // Any excess STRK stays in pool, benefiting all spSTRK holders
+            self.erc20.mint(get_contract_address(), PRIVACY_DENOMINATION);
             
             // Emit event (no user address!)
             self.emit(BridgeCommitmentCreated {
@@ -2182,7 +2289,7 @@ pub mod spSTRK {
         }
 
         /// Claim spSTRK - exit privacy for liquidity (INSTANT, no timelock)
-        /// Commitment is hidden - only nullifier is revealed
+        /// FIXED DENOMINATION: Always withdraws 10 spSTRK (circuit enforces this)
         fn claim_spSTRK(
             ref self: ContractState,
             proof: Span<felt252>,
@@ -2203,8 +2310,7 @@ pub mod spSTRK {
             let verification_result = verifier.verify_ultra_starknet_honk_proof(proof);
             assert(verification_result.is_some(), 'Invalid proof');
             
-            // Extract values from proof (new privacy-preserving order: nullifier, shares, root)
-            // Commitment is computed privately inside the circuit - never revealed!
+            // Extract values from proof (order: nullifier, shares, root)
             let public_inputs = verification_result.unwrap();
             let proof_nullifier: u256 = *public_inputs.at(0);
             let proof_shares: u256 = *public_inputs.at(1);
@@ -2213,16 +2319,19 @@ pub mod spSTRK {
             assert(proof_nullifier == nullifier, 'Nullifier mismatch');
             self._assert_known_root(proof_root);
             
+            // SECURITY: Double-check circuit enforced fixed denomination
+            assert(proof_shares == PRIVACY_DENOMINATION, 'Invalid denomination');
+            
             // Mark nullifier as used (prevents double-spend)
             self.used_nullifiers.entry(nullifier).write(true);
             
-            // Transfer spSTRK from contract to recipient
-            self.erc20._transfer(get_contract_address(), recipient, proof_shares);
+            // Transfer fixed PRIVACY_DENOMINATION spSTRK from contract to recipient
+            self.erc20._transfer(get_contract_address(), recipient, PRIVACY_DENOMINATION);
             
             self.emit(Event::PrivateWithdrawal(PrivateWithdrawal {
                 nullifier,
                 recipient,
-                amount: proof_shares
+                amount: PRIVACY_DENOMINATION
             }));
         }
 
@@ -2273,7 +2382,7 @@ pub mod spSTRK {
         }
 
         /// Complete private withdrawal after unlock period
-        /// TRUE PRIVACY: Commitment is never revealed, only nullifier
+        /// FIXED DENOMINATION: Always withdraws 10 spSTRK worth of STRK (circuit enforces this)
         fn complete_private_withdraw(
             ref self: ContractState,
             proof: Span<felt252>,
@@ -2304,7 +2413,7 @@ pub mod spSTRK {
             let verification_result = verifier.verify_ultra_starknet_honk_proof(proof);
             assert(verification_result.is_some(), 'Invalid proof');
             
-            // Extract public inputs (new privacy-preserving order: nullifier, shares, root)
+            // Extract public inputs (order: nullifier, shares, root)
             let public_inputs = verification_result.unwrap();
             let proof_nullifier: u256 = *public_inputs.at(0);
             let proof_shares: u256 = *public_inputs.at(1);
@@ -2313,14 +2422,17 @@ pub mod spSTRK {
             assert(proof_nullifier == nullifier, 'Nullifier mismatch');
             self._assert_known_root(proof_root);
             
-            // Calculate STRK amount from shares at current exchange rate
-            let strk_amount = self._sp_strk_to_strk(proof_shares);
+            // SECURITY: Double-check circuit enforced fixed denomination
+            assert(proof_shares == PRIVACY_DENOMINATION, 'Invalid denomination');
+            
+            // Calculate STRK amount from PRIVACY_DENOMINATION at current exchange rate
+            let strk_amount = self._sp_strk_to_strk(PRIVACY_DENOMINATION);
             
             // Mark nullifier as used
             self.used_nullifiers.entry(nullifier).write(true);
             
-            // Burn spSTRK from contract
-            self.erc20.burn(get_contract_address(), proof_shares);
+            // Burn PRIVACY_DENOMINATION spSTRK from contract
+            self.erc20.burn(get_contract_address(), PRIVACY_DENOMINATION);
             
             // Update accounting
             self.total_pooled_STRK.write(self.total_pooled_STRK.read() - strk_amount);

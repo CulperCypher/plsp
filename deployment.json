@@ -4,11 +4,11 @@
     "address": "0x039fbb068b510e5528eeea74a51c5ffa6e7c8278acddcf3f6ad628bd9d16c0d5"
   },
   "unlockVerifier": {
-    "address": "0x077aacdfef0ed6fb5d6a48894afe1d0a3bb5bbc41026c47276c3964c32622f7b"
+    "address": "0x01c992ea356cc4c99d61fa4cd5b671813db06753d5419e341857eebeee0aa55a"
   },
   "spSTRK": {
     "address": "0x05efc624f4f0afb75bd6a57b35a0d2fb270c6eb0cea0e3f7dc36aefe9681e509",
-    "class_hash": "0x004cb55fe1a5e745c7d746e1186f72bff574906e5f25b003c701985703ddebd1"
+    "class_hash": "0x0732a20d7b9336b2fc38dac3bc3b309c93c80bc2ea18274b04fd0988d69035c4"
   },
   "config": {
     "owner": "0x073eb5658ce8291f795aad5584000dfc52aa197600b4df98568b4d480b9fdb65",

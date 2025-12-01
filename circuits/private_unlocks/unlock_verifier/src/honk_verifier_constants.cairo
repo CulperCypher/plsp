@@ -3,7 +3,7 @@ use garaga::utils::noir::HonkVk;
 
 // _vk_hash = keccak256(vk_bytes)
 // vk_hash = hades_permutation(_vk_hash.low, _vk_hash.high, 2)
-pub const VK_HASH: felt252 = 0x16043e6d9ef50bab14ee2182e9247d0085f08ca6ace42ebce7c0dbe05a3547b;
+pub const VK_HASH: felt252 = 0xeb30aa5541ce45eee1daa27a9e2483fbed003aad9ec3c4173a8eb904c627cb;
 pub const vk: HonkVk = HonkVk {
     circuit_size: 65536,
     log_circuit_size: 16,
@@ -11,43 +11,43 @@ pub const vk: HonkVk = HonkVk {
     public_inputs_offset: 1,
     qm: G1Point {
         x: u384 {
-            limb0: 0x94cb7353414bd7f4039e6dd7,
-            limb1: 0x17d068a39ea11f8bef404b22,
-            limb2: 0x2a2dee5c1988128,
+            limb0: 0x9af9ee8f67a20e08bab890fb,
+            limb1: 0x1a6205b9879e640a723f297b,
+            limb2: 0x2149e124dfc23628,
             limb3: 0x0,
         },
         y: u384 {
-            limb0: 0x8d7966201772834d2552f2bd,
-            limb1: 0xc6408d0827e24bbb6fb95880,
-            limb2: 0x1b35da9a47288c6b,
+            limb0: 0x3e19b256dfb5b343e7ba8183,
+            limb1: 0xe52f819a00b33a39da645a53,
+            limb2: 0x64d497a9e7e9c4b,
             limb3: 0x0,
         },
     },
     qc: G1Point {
         x: u384 {
-            limb0: 0x56524f2366bde626c1bea1c9,
-            limb1: 0x232ce207ad49c1ae94db09d3,
-            limb2: 0x2abc8512b0f18234,
+            limb0: 0xd40b02865fb26b08e64665bf,
+            limb1: 0xccc9029c5f49ff278f2827d6,
+            limb2: 0x1004f334dab07e8,
             limb3: 0x0,
         },
         y: u384 {
-            limb0: 0x43c63f0e8a1bbfc9f7950048,
-            limb1: 0x58593bf82b0d9207579a8e7b,
-            limb2: 0x18e0de51c30178b1,
+            limb0: 0x12df038fa9e672b216a98267,
+            limb1: 0x8677467c854795aaf955bd99,
+            limb2: 0x130c4799600899e,
             limb3: 0x0,
         },
     },
     ql: G1Point {
         x: u384 {
-            limb0: 0xba7e10c7a6e7e0f055841bda,
-            limb1: 0x34deb075012b20f9ea06a420,
-            limb2: 0x1f16e6c7d46bb9a7,
+            limb0: 0x50519ad1def4922d00449ade,
+            limb1: 0x3e0421409712c2ac64fa280c,
+            limb2: 0x2e7524a4480381c4,
             limb3: 0x0,
         },
         y: u384 {
-            limb0: 0x8262d599ca09a70d48ed9f8e,
-            limb1: 0xb23ccf9891792dd261083c78,
-            limb2: 0x17c6b07ffd3ce070,
+            limb0: 0x8b552553e813d3718169b6ae,
+            limb1: 0xacb1709d2594170395b51f8f,
+            limb2: 0x60cba130df6a6ff,
             limb3: 0x0,
         },
     },
@@ -207,29 +207,29 @@ pub const vk: HonkVk = HonkVk {
     },
     s2: G1Point {
         x: u384 {
-            limb0: 0xb427dcda1af8b6d4c643479c,
-            limb1: 0xd1c2f7d30995ed22cbbb6c33,
-            limb2: 0x2db839bf2b5d2ea0,
+            limb0: 0x55b373d333ddfd0fea96609a,
+            limb1: 0x562558edceb342f503df2dfe,
+            limb2: 0x2108ec61cde1b777,
             limb3: 0x0,
         },
         y: u384 {
-            limb0: 0x2101f1b34579fac015ffd351,
-            limb1: 0x87a9324ba7e5a475866915c0,
-            limb2: 0x2e58287dd5c546c6,
+            limb0: 0x2958d79db64aa41849a313,
+            limb1: 0xbe49c58eccbc661758035bd1,
+            limb2: 0x2086a481bf5eb8eb,
             limb3: 0x0,
         },
     },
     s3: G1Point {
         x: u384 {
-            limb0: 0xaa91387b0a6dcea3301a9e3b,
-            limb1: 0xabc6e50393dd9c73dc98080a,
-            limb2: 0x20c836a105f10d95,
+            limb0: 0xd5b85aa055d88d62f5ea83fe,
+            limb1: 0xea8a0d2058b5bede4aeba87f,
+            limb2: 0x793f1417a1d6a0d,
             limb3: 0x0,
         },
         y: u384 {
-            limb0: 0x35add783468e29717e9326df,
-            limb1: 0x6c4a82ee19450351e4bcc749,
-            limb2: 0x3a293c5bb1665d1,
+            limb0: 0xe344db14a890293904e53963,
+            limb1: 0x45b0b07777cb0db7098cfc3b,
+            limb2: 0x10059176fca4870d,
             limb3: 0x0,
         },
     },
@@ -263,15 +263,15 @@ pub const vk: HonkVk = HonkVk {
     },
     id2: G1Point {
         x: u384 {
-            limb0: 0x415d89a31d68ce1da0145dc4,
-            limb1: 0x9c3d3cc85e442c853a0d3d20,
-            limb2: 0x2462f9647259e2b5,
+            limb0: 0x8a49e3dd7f80f3738f26c1e4,
+            limb1: 0x93ea0f616148c3deae0a0a27,
+            limb2: 0xf90d74c55c5a337,
             limb3: 0x0,
         },
         y: u384 {
-            limb0: 0x6bfc06bf335449816bb12629,
-            limb1: 0xf6f7c69ea7ba26aee7f78096,
-            limb2: 0x2c719e80ae9996f4,
+            limb0: 0x8227cadffa519776420b60b1,
+            limb1: 0xb2c3834fa0d82d4c05504862,
+            limb2: 0x2ea209f1f8cdb2b2,
             limb3: 0x0,
         },
     },

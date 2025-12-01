@@ -2,7 +2,10 @@ use poseidon::poseidon::bn254::hash_2;
 
 global TREE_HEIGHT: u32 = 32;
 
-// Simplified private unlock circuit
+// Fixed denomination: 10 spSTRK (10 * 10^18 wei)
+global DENOMINATION: Field = 10000000000000000000;
+
+// Simplified private unlock circuit - FIXED DENOMINATION for security
 // Matches deposit structure - contract handles time locks
 // Circuit proves: ownership + nullifier
 
@@ -41,9 +44,9 @@ fn main(
     let computed_nullifier = hash_nullifier(witness);
     assert(computed_nullifier == nullifier);
 
-    // 3. Verify shares
+    // 3. Verify shares matches FIXED DENOMINATION (security: prevents amount manipulation)
     assert(witness.shares == shares);
-    assert(shares != 0);
+    assert(shares == DENOMINATION); // Must be exactly 10 spSTRK
 
     // 4. Merkle membership proof - proves commitment is in tree WITHOUT revealing it
     let mut current = commitment;
