@@ -7,7 +7,7 @@ import { UltraHonkBackend } from "@aztec/bb.js";
 import { flattenFieldsAsArray } from "./helpers/proof";
 import { getHonkCallData, init } from 'garaga';
 import { bytecode, abi } from "./assets/circuit.json";
-import { bytecode as unlockBytecode, abi as unlockAbi } from "../../circuits/private_unlocks/target/private_unlocks.json";
+import { bytecode as unlockBytecode, abi as unlockAbi } from "./assets/private_unlocks.json";
 import depositVkUrl from './assets/deposit_vk.bin?url';
 import unlockVkUrl from './assets/unlock_vk.bin?url';
 import { RpcProvider, Contract, hash as starknetHash } from 'starknet';
