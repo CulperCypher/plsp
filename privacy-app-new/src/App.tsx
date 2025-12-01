@@ -97,8 +97,8 @@ const lifecycleSteps = [
   }
 ];
 
-// Merkle indexer URL (for fetching Merkle paths for unlock proofs)
-const INDEXER_URL = 'http://65.108.206.214:4000'; // TODO: Update to your server IP
+// Merkle indexer URL (proxied through Vercel to avoid mixed-content issues)
+const INDEXER_URL = '/api/indexer';
 
 // Minimal ABI for spSTRK contract
 const spStrkAbi = [
