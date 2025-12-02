@@ -10,7 +10,7 @@ The privacy features extend standard ERC-4626 liquid staking with zero-knowledge
 
 ## Demo
 
-- Frontend (Vercel): https://plsp-neon.vercel.app/
+- GO HERE ->> Frontend (Vercel): https://plsp-neon.vercel.app/
 
 ## Features
 
