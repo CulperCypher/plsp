@@ -56,4 +56,17 @@
    - Private unlock (request + complete) for STRK and spSTRK toggle.
    - Verify proofs progress in UI and Merkle roots updating via indexer logs.
 
+10. **Ztarknet (Madara) deployment notes**
+
+- **RPC:** `https://ztarknet-madara.d.karnot.xyz`
+- **Contracts to deploy:**
+  1. `spSTRK` (same class hash as Starknet Sepolia)
+  2. `private_deposits` verifier (`0x0687...5659` class hash)
+  3. `unlock_verifier` (`0x67d7...19de` class hash)
+- **Post-deploy config:**
+  - Call `set_deposit_verifier`, `set_unlock_verifier`, `set_indexer` on `spSTRK` with the new addresses.
+  - Re-run `enable_privacy` once verifiers + relayer are wired up.
+  - Update `deployment.json` and frontend `.env` to point at the Ztarknet addresses.
+- **Indexing:** The relayer still needs to push Merkle roots. Point its RPC + admin keys at Ztarknet.
+
 Keep `target/` artifacts out of git (already ignored). Archive unused verifier experiments (e.g., `PrivateUnlocksVerifier/`) outside the repo if desired.
