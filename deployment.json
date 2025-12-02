@@ -10,7 +10,7 @@
     "address": "0x05efc624f4f0afb75bd6a57b35a0d2fb270c6eb0cea0e3f7dc36aefe9681e509",
     "class_hash": "0x0732a20d7b9336b2fc38dac3bc3b309c93c80bc2ea18274b04fd0988d69035c4"
   },
-  "config": {
+    "config": {
     "owner": "0x073eb5658ce8291f795aad5584000dfc52aa197600b4df98568b4d480b9fdb65",
     "strkToken": "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
     "validatorPool": "0x055ec7c532c90a5452e40f4b20b90b6756e218d582d4ee7bc19b8ac8b5cbd78f",
@@ -20,5 +20,29 @@
     "unlockPeriod": "60",
     "claimWindow": "2592000"
   },
+  "spSTRKZtarknet": {
+    "address": "0x058504c2b70fe7e2c258102b6fce8e802750beaffa0509c3b234e25e826464ee",
+    "class_hash": "0x0732a20d7b9336b2fc38dac3bc3b309c93c80bc2ea18274b04fd0988d69035c4"
+  },
+  "ZtarknetConfig": {
+    "owner": "0x247b937a83ea5e3938252c7aa10577ee680ce976a1aba3fd314c8af466c73af",
+    "strkToken": "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+    "validatorPool": "0x055ec7c532c90a5452e40f4b20b90b6756e218d582d4ee7bc19b8ac8b5cbd78f",
+    "daoFeeBps": "500",
+    "devFeeBps": "300",
+    "minStakeAmount": "100000000000000000",
+    "unlockPeriod": "60",
+    "claimWindow": "2592000"
+
+  },
+  "unlocks_verifierZtarknet": {
+    "address": "0x0059b8a43dadf9d211851d594de6a79d210aadaa3613544abe1aae6c1f100110",
+    "class_hash": "0x67d78c2e70a9f934301c4372526fad00341e12b097f3bfbd484dd3b046a19de"
+  },
+  "private_depositsZtarknet": {
+    "address": "0x07139fb595c86c23e7b322775dfa1fd19c69e27329af1c96522ce0fc9bcb4b5d",
+    "class_hash": "0x068773b8bc53888ff121eb24c616fad9a84ec686e5b7b449a2f4b4d59815659"
+  },
+  "deployment_rpc_Ztarknet": "https://ztarknet-madara.d.karnot.xyz",
   "deployedAt": "2025-11-26"
 }

@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 export const starknetConfig = {
   rpcUrl: process.env.STARKNET_RPC_URL,
   contractAddress: process.env.WTAZ_CONTRACT_ADDRESS,

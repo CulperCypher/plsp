@@ -1,7 +1,21 @@
 import { execSync } from 'child_process';
+import { RpcProvider, Contract } from 'starknet';
 import { priceOracle } from '../src/services/priceOracle.js';
 import { starknetConfig } from '../src/config/starknetConfig.js';
 import { config } from '../src/config/config.js';
+
+// Minimal ABI for get_stats (same tuple used in frontend)
+const SPSTRK_ABI = [
+  {
+    name: 'get_stats',
+    type: 'function',
+    inputs: [],
+    outputs: [{
+      type: '(core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u16, core::integer::u16)'
+    }],
+    state_mutability: 'view'
+  }
+];
 
 const usage = () => {
   console.log('Usage: node scripts/privateBridgeSend.js --commitment <poseidon> [--from <zaddr>] [--send] [--datadir <path>] [--fee <float>]');
@@ -53,49 +67,41 @@ const toZecString = (zatoshis) => {
 };
 
 /**
- * Fetch exchange rate from spSTRK contract via RPC
+ * Fetch exchange rate from get_stats (third element of tuple) with fallback
  */
 async function getExchangeRate() {
+  const KNOWN_RATE = 1.176638;
+
   try {
     const spSTRKAddress = starknetConfig.spSTRKContractAddress;
-    const rpcUrl = starknetConfig.rpcUrl || 'https://starknet-sepolia.public.blastapi.io';
-    
-    // Call get_exchange_rate via Starknet RPC
-    const response = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'starknet_call',
-        params: {
-          request: {
-            contract_address: spSTRKAddress,
-            entry_point_selector: '0x2e4263afad30923c891518314c3c95dbe830a16874e8abc5777a9a20b54c76e', // get_exchange_rate
-            calldata: []
-          },
-          block_id: 'latest'
-        },
-        id: 1
-      })
-    });
-    
-    const data = await response.json();
-    
-    if (data.result && data.result.length >= 2) {
-      const low = BigInt(data.result[0]);
-      const high = BigInt(data.result[1]);
-      const rate = Number(low + (high << 128n)) / 1e18;
-      console.log(`   ✅ Got exchange rate from RPC: ${rate.toFixed(6)}`);
-      return rate;
-    }
-    
-    console.warn('   ⚠️ Could not parse exchange rate from RPC, using fallback 1.17');
-    return 1.17; // Fallback to approximate current rate
+    const rpcUrl = starknetConfig.rpcUrl || 'https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_8/LOIuv6FM2_iaC8ZCb1Omu';
+
+    const provider = new RpcProvider({ nodeUrl: rpcUrl });
+    const contract = new Contract({ abi: SPSTRK_ABI, address: spSTRKAddress, providerOrAccount: provider });
+
+    const stats = await contract.get_stats();
+    const exchangeRateU256 = stats[2];
+    const rate = Number(toBigInt(exchangeRateU256)) / 1e18;
+    console.log(`   ✅ Got exchange rate from get_stats: ${rate.toFixed(6)}`);
+    return rate;
   } catch (error) {
-    console.warn('   ⚠️ Error fetching exchange rate:', error.message);
-    return 1.17; // Fallback to approximate current rate
+    console.warn('   ⚠️ Error fetching exchange rate via get_stats:', error.message);
+    console.log(`   📊 Using known rate: ${KNOWN_RATE}`);
+    return KNOWN_RATE;
   }
 }
+
+const toBigInt = (value) => {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number') return BigInt(Math.trunc(value));
+  if (typeof value === 'string') return BigInt(value);
+  if (value && typeof value === 'object' && 'low' in value && 'high' in value) {
+    const low = BigInt(value.low);
+    const high = BigInt(value.high);
+    return (high << 128n) + low;
+  }
+  throw new Error('Unable to parse u256 value');
+};
 
 async function main() {
   const opts = parseArgs();

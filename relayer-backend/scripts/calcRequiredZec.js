@@ -1,5 +1,17 @@
+import { RpcProvider, Contract } from 'starknet';
 import { priceOracle } from '../src/services/priceOracle.js';
 import { starknetConfig } from '../src/config/starknetConfig.js';
+
+// Minimal ABI for get_exchange_rate
+const SPSTRK_ABI = [
+  {
+    name: 'get_exchange_rate',
+    type: 'function',
+    inputs: [],
+    outputs: [{ type: 'core::integer::u256' }],
+    state_mutability: 'view'
+  }
+];
 
 const usage = () => {
   console.log('Usage: node scripts/calcRequiredZec.js [--private | <strkAmount>]');
@@ -14,47 +26,33 @@ const usage = () => {
 };
 
 /**
- * Fetch exchange rate from spSTRK contract via RPC
+ * Fetch exchange rate from spSTRK contract via starknet.js
  */
 async function getExchangeRate() {
   try {
     const spSTRKAddress = starknetConfig.spSTRKContractAddress;
     const rpcUrl = starknetConfig.rpcUrl || 'https://starknet-sepolia.public.blastapi.io';
     
-    // Call get_exchange_rate via Starknet RPC
-    const response = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'starknet_call',
-        params: {
-          request: {
-            contract_address: spSTRKAddress,
-            entry_point_selector: '0x2e4263afad30923c891518314c3c95dbe830a16874e8abc5777a9a20b54c76e', // get_exchange_rate
-            calldata: []
-          },
-          block_id: 'latest'
-        },
-        id: 1
-      })
-    });
+    const provider = new RpcProvider({ nodeUrl: rpcUrl });
+    const contract = new Contract({ abi: SPSTRK_ABI, address: spSTRKAddress, providerOrAccount: provider });
     
-    const data = await response.json();
+    const result = await contract.get_exchange_rate();
     
-    if (data.result && data.result.length >= 2) {
-      const low = BigInt(data.result[0]);
-      const high = BigInt(data.result[1]);
-      const rate = Number(low + (high << 128n)) / 1e18;
-      console.log(`   ✅ Got exchange rate from RPC: ${rate.toFixed(6)}`);
-      return rate;
+    // Result is a u256 (could be BigInt or object with low/high)
+    let rate;
+    if (typeof result === 'bigint') {
+      rate = Number(result) / 1e18;
+    } else if (result.low !== undefined) {
+      rate = Number(BigInt(result.low) + (BigInt(result.high || 0) << 128n)) / 1e18;
+    } else {
+      rate = Number(BigInt(result)) / 1e18;
     }
     
-    console.warn('   ⚠️ Could not parse exchange rate from RPC, using fallback 1.17');
-    return 1.17;
+    console.log(`   ✅ Got exchange rate from RPC: ${rate.toFixed(6)}`);
+    return rate;
   } catch (error) {
     console.warn('   ⚠️ Error fetching exchange rate:', error.message);
-    return 1.17;
+    return 1.0; // Fallback to 1:1 rate (safer)
   }
 }
 

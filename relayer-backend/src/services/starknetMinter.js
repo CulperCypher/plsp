@@ -1,10 +1,36 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { RpcProvider, Contract } from 'starknet';
 import { starknetConfig } from '../config/starknetConfig.js';
 import { config } from '../config/config.js';
 import { priceOracle } from './priceOracle.js';
 
 const execAsync = promisify(exec);
+
+// Minimal ABI matching frontend usage (get_stats includes exchange rate)
+const SPSTRK_ABI = [
+  {
+    name: 'get_stats',
+    type: 'function',
+    inputs: [],
+    outputs: [{
+      type: '(core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u256, core::integer::u16, core::integer::u16)'
+    }],
+    state_mutability: 'view'
+  }
+];
+
+const u256ToBigInt = (value) => {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number') return BigInt(Math.trunc(value));
+  if (typeof value === 'string') return BigInt(value);
+  if (value && typeof value === 'object' && 'low' in value && 'high' in value) {
+    const low = BigInt(value.low);
+    const high = BigInt(value.high);
+    return (high << 128n) + low;
+  }
+  throw new Error('Unable to parse u256 value');
+};
 
 const ensureHexPrefix = (hash) => (hash.startsWith('0x') ? hash : `0x${hash}`);
 
@@ -130,47 +156,28 @@ class StarknetMinter {
 }
 
   /**
-   * Get current exchange rate from spSTRK contract via RPC
+   * Get current exchange rate via get_stats (matches frontend logic)
    * Returns STRK wei needed for 1 spSTRK
    */
   async getExchangeRate() {
+    const KNOWN_RATE = BigInt('1176638000000000000'); // 1.176638e18 fallback
+
     try {
       const spSTRKAddress = starknetConfig.spSTRKContractAddress;
-      const rpcUrl = starknetConfig.rpcUrl || 'https://starknet-sepolia.public.blastapi.io';
-      
-      // Call get_exchange_rate via Starknet RPC
-      const response = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          method: 'starknet_call',
-          params: {
-            request: {
-              contract_address: spSTRKAddress,
-              entry_point_selector: '0x2e4263afad30923c891518314c3c95dbe830a16874e8abc5777a9a20b54c76e', // get_exchange_rate
-              calldata: []
-            },
-            block_id: 'latest'
-          },
-          id: 1
-        })
-      });
-      
-      const data = await response.json();
-      
-      if (data.result && data.result.length >= 2) {
-        const low = BigInt(data.result[0]);
-        const high = BigInt(data.result[1]);
-        return low + (high << 128n);
-      }
-      
-      // Fallback to approximate current rate
-      console.warn('   ⚠️ Could not parse exchange rate from RPC, using fallback 1.17');
-      return BigInt('1170000000000000000'); // 1.17e18
+      const rpcUrl = starknetConfig.rpcUrl || 'https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_8/LOIuv6FM2_iaC8ZCb1Omu';
+
+      const provider = new RpcProvider({ nodeUrl: rpcUrl });
+      const contract = new Contract({ abi: SPSTRK_ABI, address: spSTRKAddress, providerOrAccount: provider });
+
+      const stats = await contract.get_stats();
+      const exchangeRate = u256ToBigInt(stats[2]);
+
+      console.log(`   ✅ Exchange rate from get_stats: ${Number(exchangeRate) / 1e18} STRK per spSTRK`);
+      return exchangeRate;
     } catch (error) {
-      console.warn('   ⚠️ Error fetching exchange rate:', error.message);
-      return BigInt('1170000000000000000'); // 1.17e18 fallback
+      console.warn('   ⚠️ Error fetching exchange rate via get_stats:', error.message);
+      console.log(`   📊 Using known rate: 1.176638`);
+      return KNOWN_RATE;
     }
   }
 
@@ -184,35 +191,36 @@ class StarknetMinter {
 
       // FIXED DENOMINATION: Always 10 spSTRK
       const PRIVACY_DENOMINATION = BigInt('10000000000000000000'); // 10 * 10^18
-      const MAX_OVERPAY_BPS = 500n; // 5% max overpay
 
       // Get current exchange rate from contract
       const exchangeRate = await this.getExchangeRate();
       console.log(`   📊 Exchange rate: ${Number(exchangeRate) / 1e18} STRK per spSTRK`);
 
-      // Calculate exact STRK needed for 10 spSTRK (with 2% buffer)
-      const strkNeeded = (PRIVACY_DENOMINATION * exchangeRate * 102n) / (BigInt('1000000000000000000') * 100n);
-      console.log(`   💰 STRK needed for 10 spSTRK: ${Number(strkNeeded) / 1e18} STRK`);
+      // Calculate exact STRK needed for 10 spSTRK (no buffer - contract handles tolerance)
+      const strkNeededExact = (PRIVACY_DENOMINATION * exchangeRate) / BigInt('1000000000000000000');
+      console.log(`   💰 STRK needed for 10 spSTRK: ${Number(strkNeededExact) / 1e18} STRK`);
 
       // Convert ZEC to STRK
       const strkFromZec = await priceOracle.convertZatoshisToSTRK(transaction.amountZat);
       const convertedAmount = BigInt(strkFromZec);
       console.log(`   💰 STRK from ZEC: ${Number(convertedAmount) / 1e18} STRK`);
 
-      // Verify user sent enough ZEC
-      if (convertedAmount < strkNeeded) {
-        throw new Error(`Insufficient ZEC: got ${Number(convertedAmount) / 1e18} STRK, need ${Number(strkNeeded) / 1e18} STRK for 10 spSTRK`);
+      // Verify user sent enough ZEC (exact amount needed, contract has 5% overpay tolerance)
+      if (convertedAmount < strkNeededExact) {
+        throw new Error(`Insufficient ZEC: got ${Number(convertedAmount) / 1e18} STRK, need ${Number(strkNeededExact) / 1e18} STRK for 10 spSTRK`);
       }
 
-      // Check not overpaying too much (max 5% over)
-      const maxAllowed = strkNeeded + (strkNeeded * MAX_OVERPAY_BPS / 10000n);
+      // Check not overpaying too much (max 5% over what contract allows)
+      const maxAllowed = (strkNeededExact * 105n) / 100n;
       if (convertedAmount > maxAllowed) {
-        console.warn(`   ⚠️ User overpaid: got ${Number(convertedAmount) / 1e18} STRK, only need ${Number(strkNeeded) / 1e18} STRK`);
+        console.warn(`   ⚠️ User overpaid: got ${Number(convertedAmount) / 1e18} STRK, only need ${Number(strkNeededExact) / 1e18} STRK`);
         // Still proceed but warn - extra goes to pool
       }
 
-      // Use calculated STRK amount (not declared amount from memo)
-      const amount = strkNeeded;
+      // Add 2% buffer to amount we send to avoid decimal edge cases
+      // Contract accepts up to 5% overpay, so 2% buffer is safe
+      const amount = (strkNeededExact * 102n) / 100n;
+      console.log(`   📤 Sending with 2% buffer: ${Number(amount) / 1e18} STRK`);
       const commitment = BigInt(transaction.commitment);
 
       const strkLow = amount % (2n ** 128n);
