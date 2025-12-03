@@ -223,8 +223,6 @@ function App() {
 
   // Computed commitment (will be calculated from inputs)
   const [commitment, setCommitment] = useState<string>('');
-  const [totalAssets, _setTotalAssets] = useState<string>('0');
-  const [totalSupply, _setTotalSupply] = useState<string>('0');
   const [depositTime, setDepositTime] = useState<string>('');
 
   const amountWei = useMemo(() => strkToWei(amount || '0'), [amount]);
@@ -992,6 +990,10 @@ function App() {
       const proofTime = depositTime || Math.floor(Date.now() / 1000).toString();
       
       // FIXED DENOMINATION: shares is always 10 spSTRK
+      // Use actual pool stats from contract (convert formatted strings back to wei)
+      const poolTotalAssets = strkToWei(publicStats.totalPooled || '0');
+      const poolTotalSupply = strkToWei(publicStats.totalSupply || '0');
+      
       const input = {
         witness: {
           secret: secret,
@@ -1003,8 +1005,8 @@ function App() {
         commitment: commitment,
         shares: PRIVACY_DENOMINATION_WEI, // Fixed: 10 spSTRK
         amount: amountWei,
-        total_assets: totalAssets,
-        total_supply: totalSupply,
+        total_assets: poolTotalAssets,
+        total_supply: poolTotalSupply,
         current_time: proofTime  // Must match deposit_time!
       };
       console.log('Circuit input:', input);
