@@ -991,22 +991,29 @@ function App() {
       
       // FIXED DENOMINATION: shares is always 10 spSTRK
       // Use actual pool stats from contract (convert formatted strings back to wei)
-      const poolTotalAssets = strkToWei(publicStats.totalPooled || '0');
-      const poolTotalSupply = strkToWei(publicStats.totalSupply || '0');
+      const poolTotalAssets = BigInt(strkToWei(publicStats.totalPooled || '0'));
+      const poolTotalSupply = BigInt(strkToWei(publicStats.totalSupply || '0'));
+      
+      // Calculate EXACT amount needed for 10 spSTRK (circuit requires exact math)
+      // amount = shares * total_assets / total_supply
+      const sharesBI = BigInt(PRIVACY_DENOMINATION_WEI);
+      const exactAmount = poolTotalSupply > 0n 
+        ? ((sharesBI * poolTotalAssets) / poolTotalSupply).toString()
+        : PRIVACY_DENOMINATION_WEI; // 1:1 if no supply yet
       
       const input = {
         witness: {
           secret: secret,
-          amount: amountWei,
+          amount: exactAmount,
           shares: PRIVACY_DENOMINATION_WEI, // Fixed: 10 spSTRK
           deposit_time: proofTime,
           blinding: blinding
         },
         commitment: commitment,
         shares: PRIVACY_DENOMINATION_WEI, // Fixed: 10 spSTRK
-        amount: amountWei,
-        total_assets: poolTotalAssets,
-        total_supply: poolTotalSupply,
+        amount: exactAmount,
+        total_assets: poolTotalAssets.toString(),
+        total_supply: poolTotalSupply.toString(),
         current_time: proofTime  // Must match deposit_time!
       };
       console.log('Circuit input:', input);
