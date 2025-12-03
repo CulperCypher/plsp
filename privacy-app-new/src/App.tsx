@@ -1582,12 +1582,15 @@ function App() {
           >
             Single-step
           </button>
-          <button
-            className={depositMode === 'two-step' ? 'active' : ''}
-            onClick={() => setDepositMode('two-step')}
-          >
-            Two-step (experimental)
-          </button>
+          {/* Hidden - circuit math issue */}
+          {false && (
+            <button
+              className={depositMode === 'two-step' ? 'active' : ''}
+              onClick={() => setDepositMode('two-step')}
+            >
+              Two-step (experimental)
+            </button>
+          )}
         </div>
       </div>
 
