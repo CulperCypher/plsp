@@ -17,7 +17,7 @@ const db = new Database('commitments.db');
 db.exec(`CREATE TABLE IF NOT EXISTS commitments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   leaf_index INTEGER UNIQUE,
-  commitment TEXT UNIQUE,
+  commitment TEXT,
   block INTEGER
 );`);
 

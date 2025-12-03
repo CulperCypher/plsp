@@ -2247,6 +2247,11 @@ pub mod spSTRK {
             let bridge = self.zcash_bridge.read();
             assert(!bridge.is_zero(), 'Bridge not set');
             assert(caller == bridge, 'Only bridge can call');
+
+            assert(strk_amount > 0, Errors::INVALID_STRK_AMOUNT);
+
+            // Bridge must actually transfer STRK into the contract
+            self._strk_transfer(caller, get_contract_address(), strk_amount);
             
             // Calculate spSTRK amount from incoming STRK
             let sp_strk_amount = self._strk_to_sp_strk(strk_amount);

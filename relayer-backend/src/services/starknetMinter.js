@@ -94,13 +94,7 @@ class StarknetMinter {
     console.log(`\n   📍 Step 1/3: Approve STRK to spSTRK contract...`);
     
     // Approve STRK to spSTRK contract
-    const approveCmd = `sncast \
-      --account backend_relayer \
-      invoke \
-      --network sepolia \
-      --contract-address ${strkTokenAddress} \
-      --function approve \
-      --calldata ${spSTRKAddress} ${strkLow} ${strkHigh}`;
+    const approveCmd = `sncast --account backend_relayer invoke --network sepolia --contract-address ${strkTokenAddress} --function approve --calldata ${spSTRKAddress} ${strkLow} ${strkHigh}`;
 
     await execAsync(approveCmd);
     console.log(`   ✅ STRK approved`);
@@ -110,13 +104,7 @@ class StarknetMinter {
     console.log(`\n   📍 Step 2/3: Stake STRK (backend receives spSTRK)...`);
     
     // Call stake() - spSTRK goes to backend wallet
-    const stakeCmd = `sncast \
-      --account backend_relayer \
-      invoke \
-      --network sepolia \
-      --contract-address ${spSTRKAddress} \
-      --function stake \
-      --calldata ${strkLow} ${strkHigh} 0 0`;
+    const stakeCmd = `sncast --account backend_relayer invoke --network sepolia --contract-address ${spSTRKAddress} --function stake --calldata ${strkLow} ${strkHigh} 0 0`;
 
     const { stdout: stakeStdout, stderr: stakeStderr } = await execAsync(stakeCmd);
     console.log(`   ✅ Staked! Backend received spSTRK`);
@@ -130,13 +118,7 @@ class StarknetMinter {
     console.log(`\n   📍 Step 3/3: Transfer spSTRK to user...`);
 
     // Transfer spSTRK from backend to user
-    const transferCmd = `sncast \
-      --account backend_relayer \
-      invoke \
-      --network sepolia \
-      --contract-address ${spSTRKAddress} \
-      --function transfer \
-      --calldata ${userAddress} ${strkLow} ${strkHigh}`;
+    const transferCmd = `sncast --account backend_relayer invoke --network sepolia --contract-address ${spSTRKAddress} --function transfer --calldata ${userAddress} ${strkLow} ${strkHigh}`;
 
     const { stdout: transferStdout, stderr: transferStderr } = await execAsync(transferCmd);
     console.log(`   ✅ spSTRK transferred to user!`);
@@ -220,7 +202,7 @@ class StarknetMinter {
       // Add 2% buffer to amount we send to avoid decimal edge cases
       // Contract accepts up to 5% overpay, so 2% buffer is safe
       const amount = (strkNeededExact * 102n) / 100n;
-      console.log(`   📤 Sending with 2% buffer: ${Number(amount) / 1e18} STRK`);
+      console.log(`   📤 Preparing to send ${Number(amount) / 1e18} STRK (includes 2% buffer)`);
       const commitment = BigInt(transaction.commitment);
 
       const strkLow = amount % (2n ** 128n);
@@ -230,14 +212,16 @@ class StarknetMinter {
       const commitmentHigh = commitment / (2n ** 128n);
 
       const spSTRKAddress = starknetConfig.spSTRKContractAddress;
+      const strkTokenAddress = starknetConfig.strkTokenAddress;
 
-      const command = `sncast \
-        --account backend_relayer \
-        invoke \
-        --network sepolia \
-        --contract-address ${spSTRKAddress} \
-        --function stake_from_bridge_private \
-        --calldata ${strkLow} ${strkHigh} ${commitmentLow} ${commitmentHigh}`;
+      // Step 1: approve STRK spend for this exact amount
+      const approveCmd = `sncast --account backend_relayer invoke --network sepolia --contract-address ${strkTokenAddress} --function approve --calldata ${spSTRKAddress} ${strkLow} ${strkHigh}`;
+
+      console.log(`   ✅ Approving ${Number(amount) / 1e18} STRK for spSTRK contract...`);
+      await execAsync(approveCmd);
+
+      // Step 2: call stake_from_bridge_private with same amount/commitment
+      const command = `sncast --account backend_relayer invoke --network sepolia --contract-address ${spSTRKAddress} --function stake_from_bridge_private --calldata ${strkLow} ${strkHigh} ${commitmentLow} ${commitmentHigh}`;
 
       console.log(`   🔧 Sending private stake invoke (${Number(amount) / 1e18} STRK → 10 spSTRK)...`);
       const { stdout, stderr } = await execAsync(command);
