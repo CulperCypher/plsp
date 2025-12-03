@@ -7,7 +7,7 @@ import { UltraHonkBackend } from "@aztec/bb.js";
 import { flattenFieldsAsArray } from "./helpers/proof";
 import { getHonkCallData, init } from 'garaga';
 import { bytecode, abi } from "./assets/circuit.json";
-import { bytecode as unlockBytecode, abi as unlockAbi } from "./assets/private_unlocks.json";
+import { bytecode as unlockBytecode, abi as unlockAbi } from "../../circuits/private_unlocks/target/private_unlocks.json";
 import depositVkUrl from './assets/deposit_vk.bin?url';
 import unlockVkUrl from './assets/unlock_vk.bin?url';
 import { RpcProvider, Contract, hash as starknetHash } from 'starknet';
@@ -97,8 +97,8 @@ const lifecycleSteps = [
   }
 ];
 
-// Merkle indexer URL (proxied through Vercel to avoid mixed-content issues)
-const INDEXER_URL = '/api/indexer';
+// Merkle indexer URL (for fetching Merkle paths for unlock proofs)
+const INDEXER_URL = 'http://65.108.206.214:4000'; // TODO: Update to your server IP
 
 // Minimal ABI for spSTRK contract
 const spStrkAbi = [
@@ -204,6 +204,10 @@ function App() {
   const notifyInfo = (message: string) => toastInfo(message);
 
   const [wallet, setWallet] = useState<any>(null);
+  const getActionLabel = (label: string, options?: { loading?: boolean; loadingLabel?: string }) => {
+    if (options?.loading) return options.loadingLabel ?? 'Submitting…';
+    return wallet ? label : 'Connect wallet';
+  };
   const [walletAddress, setWalletAddress] = useState<string>('');
   
   // Deposit flow step (1 = mark intent, 2 = create commitment)
@@ -223,8 +227,6 @@ function App() {
 
   // Computed commitment (will be calculated from inputs)
   const [commitment, setCommitment] = useState<string>('');
-  const [totalAssets, _setTotalAssets] = useState<string>('0');
-  const [totalSupply, _setTotalSupply] = useState<string>('0');
   const [depositTime, setDepositTime] = useState<string>('');
 
   const amountWei = useMemo(() => strkToWei(amount || '0'), [amount]);
@@ -877,11 +879,11 @@ function App() {
               
               {/* Rate */}
               <div style={{ textAlign: 'center', fontSize: '12px', opacity: 0.6, margin: '12px 0' }}>
-                1 spSTRK = {publicStats.exchangeRate} STRK
+                1 spSTRK = {publicStats.exchangeRate} STRK • Unlock completes ~60 seconds after request
               </div>
               
               <button className="primary-button" onClick={handlePublicStake} disabled={publicLoading || !wallet} style={{ width: '100%' }}>
-                {publicLoading ? 'Submitting…' : 'Stake'}
+                {getActionLabel('Stake', { loading: publicLoading, loadingLabel: 'Submitting…' })}
               </button>
             </div>
           )}
@@ -938,7 +940,7 @@ function App() {
               </div>
               
               <button className="warning-button" onClick={handlePublicUnlock} disabled={publicLoading || !wallet} style={{ width: '100%' }}>
-                {publicLoading ? 'Submitting…' : 'Request Unlock'}
+                {getActionLabel('Request Unlock', { loading: publicLoading, loadingLabel: 'Submitting…' })}
               </button>
             </div>
           )}
@@ -956,11 +958,11 @@ function App() {
                 <span>Expires: {publicUnlockRequest.isExpired ? 'Expired' : new Date(publicUnlockRequest.expiryTime * 1000).toLocaleString()}</span>
               </div>
               <div className="action-row wrap">
-                <button className="primary-button" onClick={handlePublicClaim} disabled={!publicUnlockRequest.isReady || publicLoading}>
-                  Claim STRK
+                <button className="primary-button" onClick={handlePublicClaim} disabled={!wallet || !publicUnlockRequest.isReady || publicLoading}>
+                  {getActionLabel('Claim STRK', { loading: publicLoading, loadingLabel: 'Claiming…' })}
                 </button>
-                <button className="ghost-button" onClick={handlePublicCancel} disabled={publicLoading}>
-                  Cancel unlock
+                <button className="ghost-button" onClick={handlePublicCancel} disabled={publicLoading || !wallet}>
+                  {getActionLabel('Cancel unlock', { loading: publicLoading, loadingLabel: 'Cancelling…' })}
                 </button>
               </div>
             </div>
@@ -992,6 +994,10 @@ function App() {
       const proofTime = depositTime || Math.floor(Date.now() / 1000).toString();
       
       // FIXED DENOMINATION: shares is always 10 spSTRK
+      // Use actual pool stats from contract (convert formatted strings back to wei)
+      const poolTotalAssets = strkToWei(publicStats.totalPooled || '0');
+      const poolTotalSupply = strkToWei(publicStats.totalSupply || '0');
+      
       const input = {
         witness: {
           secret: secret,
@@ -1003,8 +1009,8 @@ function App() {
         commitment: commitment,
         shares: PRIVACY_DENOMINATION_WEI, // Fixed: 10 spSTRK
         amount: amountWei,
-        total_assets: totalAssets,
-        total_supply: totalSupply,
+        total_assets: poolTotalAssets,
+        total_supply: poolTotalSupply,
         current_time: proofTime  // Must match deposit_time!
       };
       console.log('Circuit input:', input);
@@ -1683,6 +1689,7 @@ function App() {
               This entire string is your proof for private withdrawals later. Copy it, paste it below to confirm, then
               download and store it somewhere safe before you press <strong>Deposit</strong>.
             </p>
+            <div className="note-warning-pill">Required to withdraw privately</div>
             <ul className="note-steps">
               <li>📋 Copy the full note and paste it into a password manager or secure file.</li>
               <li>💾 Download the note file as an offline backup.</li>
@@ -1705,7 +1712,7 @@ function App() {
       <div className="action-row">
         {depositMode === 'single' ? (
           <button className="primary-button" onClick={privateDeposit} disabled={!wallet || !commitment}>
-            Private deposit
+            {getActionLabel('Private deposit', { loading: proofState.state !== ProofState.Initial && !proofState.error, loadingLabel: 'Submitting…' })}
           </button>
         ) : (
           <div className="split-actions">
@@ -1714,7 +1721,7 @@ function App() {
               onClick={markDepositIntent}
               disabled={!wallet || intentMarked}
             >
-              Step 1: Mark intent
+              {getActionLabel('Step 1: Mark intent')}
             </button>
             <button
               className="warning-button"
@@ -1846,16 +1853,16 @@ function App() {
 
       <div className="action-row">
         {privateWithdrawMode === 'spstrk' ? (
-          <button className="primary-button" onClick={claimSpSTRK}>
-            Claim spSTRK privately
+          <button className="primary-button" onClick={claimSpSTRK} disabled={!wallet}>
+            {getActionLabel('Claim spSTRK privately')}
           </button>
         ) : (
           <>
-            <button className="primary-button" onClick={requestPrivateUnlock}>
-              Request private unlock
+            <button className="primary-button" onClick={requestPrivateUnlock} disabled={!wallet}>
+              {getActionLabel('Request private unlock')}
             </button>
-            <button className="warning-button" onClick={completePrivateWithdraw}>
-              Complete STRK withdraw
+            <button className="warning-button" onClick={completePrivateWithdraw} disabled={!wallet}>
+              {getActionLabel('Complete STRK withdraw')}
             </button>
           </>
         )}
