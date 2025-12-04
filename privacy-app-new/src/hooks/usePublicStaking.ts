@@ -113,7 +113,10 @@ const ERC20_ABI = [
 const formatU256 = (value: any, decimals = 4) => {
   if (!value) return '0';
   const bigint = toBigInt(value);
-  return (Number(bigint) / 10 ** Number(DECIMALS)).toFixed(decimals);
+  const num = Number(bigint) / 10 ** Number(DECIMALS);
+  // Floor to avoid displaying more than actual balance
+  const factor = 10 ** decimals;
+  return (Math.floor(num * factor) / factor).toFixed(decimals);
 };
 
 const toBigInt = (value: any): bigint => {
