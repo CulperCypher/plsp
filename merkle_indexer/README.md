@@ -38,14 +38,14 @@ npm start
 ## Environment Variables
 
 ```env
-RPC_URL=https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_8/...
-CONTRACT=0x05efc624f4f0afb75bd6a57b35a0d2fb270c6eb0cea0e3f7dc36aefe9681e509
-START_BLOCK=500000
-PORT=4000
+RPC_URL=.
+CONTRACT=
+START_BLOCK=
+PORT=
 
 # Optional: For automatic root submission
-INDEXER_PRIVATE_KEY=0x...
-INDEXER_ACCOUNT_ADDRESS=0x...
+INDEXER_PRIVATE_KEY=
+INDEXER_ACCOUNT_ADDRESS=
 ```
 
 ## API Endpoints
