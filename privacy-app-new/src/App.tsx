@@ -31,6 +31,11 @@ const STRK_DECIMALS = 18n;
 const TEN = 10n;
 const U128_MASK = (1n << 128n) - 1n;
 
+// App-level RPC provider - bypasses wallet's broken RPC for tx confirmation
+// Uses env var set in Vercel, falls back to Alchemy if not set
+const APP_RPC_URL = import.meta.env.VITE_RPC_URL ?? 'https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_8/LOIuv6FM2_iaC8ZCb1Omu';
+const appProvider = new RpcProvider({ nodeUrl: APP_RPC_URL });
+
 // Fixed denomination for privacy pool (Tornado Cash style)
 // All private deposits/withdrawals are exactly 10 spSTRK
 const PRIVACY_DENOMINATION = '10'; // 10 spSTRK
@@ -679,13 +684,13 @@ function App() {
       }
       const amountU256 = toU256(amountWei);
       const approveTx = await strkToken.approve(SPSTRK_ADDRESS, amountU256);
-      await wallet.account.waitForTransaction(approveTx.transaction_hash);
+      await appProvider.waitForTransaction(approveTx.transaction_hash);
       console.log('Approval confirmed');
       
       // Mark deposit intent
       console.log('Marking deposit intent...');
       const intentTx = await spStrkContract.mark_deposit_intent(amountU256);
-      await wallet.account.waitForTransaction(intentTx.transaction_hash);
+      await appProvider.waitForTransaction(intentTx.transaction_hash);
       console.log('Deposit intent marked!');
       
       setIntentMarked(true);
@@ -730,7 +735,7 @@ function App() {
       updateState(ProofState.SendingTransaction);
       console.log('Approving STRK spend...');
       const approveTx = await strkToken.approve(SPSTRK_ADDRESS, amountU256);
-      await wallet.account.waitForTransaction(approveTx.transaction_hash);
+      await appProvider.waitForTransaction(approveTx.transaction_hash);
       console.log('Approval confirmed');
       
       // Single-step deposit (no proof needed!)
@@ -742,7 +747,7 @@ function App() {
         amountU256,
         toU256(commitment)
       );
-      await wallet.account.waitForTransaction(depositTx.transaction_hash);
+      await appProvider.waitForTransaction(depositTx.transaction_hash);
       console.log('Private deposit complete!');
       
       setDepositStep(2);
@@ -1049,8 +1054,7 @@ function App() {
       // Helper to split BigInt into u256 (low, high) - each 128 bits
       // Test verifier directly before calling contract
       console.log('Testing verifier directly...');
-      const testProvider = new RpcProvider({ nodeUrl: 'https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_8/LOIuv6FM2_iaC8ZCb1Omu' });
-      const testVerifier = new Contract({ abi: verifierAbi, address: DEPOSIT_VERIFIER_ADDRESS, providerOrAccount: testProvider });
+      const testVerifier = new Contract({ abi: verifierAbi, address: DEPOSIT_VERIFIER_ADDRESS, providerOrAccount: appProvider });
       try {
         const testResult = await testVerifier.verify_ultra_starknet_honk_proof(proofData);
         console.log('Verifier result:', testResult);
@@ -1069,7 +1073,7 @@ function App() {
         toU256(commitment),
         toU256(amountWei)  // STRK amount only - contract validates it converts to ~10 spSTRK
       );
-      await wallet.account.waitForTransaction(tx.transaction_hash);
+      await appProvider.waitForTransaction(tx.transaction_hash);
       
       console.log('Private commitment created!');
       updateState(ProofState.ProofVerified);
@@ -1127,8 +1131,7 @@ function App() {
       );
       
       updateState(ProofState.SendingTransaction);
-      const provider = new RpcProvider({ nodeUrl: 'https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_7/LOIuv6FM2_iaC8ZCb1Omu' });
-      const verifierContract = new Contract({ abi: verifierAbi, address: DEPOSIT_VERIFIER_ADDRESS, providerOrAccount: provider });
+      const verifierContract = new Contract({ abi: verifierAbi, address: DEPOSIT_VERIFIER_ADDRESS, providerOrAccount: appProvider });
       
       const res = await verifierContract.verify_ultra_starknet_honk_proof(callData.slice(1));
       console.log('Verification result:', res);
@@ -1243,7 +1246,7 @@ function App() {
         toU256(nullifierStr),
         recipient
       );
-      await wallet.account.waitForTransaction(tx.transaction_hash);
+      await appProvider.waitForTransaction(tx.transaction_hash);
 
       console.log('spSTRK claimed successfully!');
       updateState(ProofState.ProofVerified);
@@ -1405,7 +1408,7 @@ function App() {
         proofData,
         toU256(nullifierHashStr)
       );
-      await wallet.account.waitForTransaction(tx.transaction_hash);
+      await appProvider.waitForTransaction(tx.transaction_hash);
 
       console.log('Unlock requested! Wait 60 seconds then complete withdraw.');
       updateState(ProofState.ProofVerified);
@@ -1503,7 +1506,7 @@ function App() {
         nullifierU256,
         recipient
       );
-      await wallet.account.waitForTransaction(tx.transaction_hash);
+      await appProvider.waitForTransaction(tx.transaction_hash);
 
       console.log('STRK withdrawn successfully!');
       updateState(ProofState.ProofVerified);
