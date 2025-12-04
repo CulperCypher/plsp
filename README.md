@@ -10,7 +10,11 @@ The repo contains all on-chain contracts, Noir circuits, the React frontend, bri
 
 <img width="938" height="658" alt="image" src="https://github.com/user-attachments/assets/4511cf16-ad5b-4436-ba39-945e5555ddc7" />
 
-<img width="1503" height="718" alt="image" src="https://github.com/user-attachments/assets/7af44647-b894-42dd-bb54-3e0df512a0b5" />
+
+
+
+<img width="1453" height="644" alt="image" src="https://github.com/user-attachments/assets/37f5344c-4cc2-46ae-81c6-97bfbb92aeec" />
+
 
 
 
@@ -241,4 +245,5 @@ sncast ... deploy --class-hash <UNLOCK_VERIFIER_CLASS_HASH>
 
 - Open an issue in this repo.
 - Ping `@Culper` in the hackathon Discord.
+
 
