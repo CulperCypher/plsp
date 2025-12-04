@@ -8,6 +8,12 @@ Liquid Privacy is a full-stack protocol that lets users stake STRK, earn yield, 
 
 The repo contains all on-chain contracts, Noir circuits, the React frontend, bridge relayer, and Merkle indexer.
 
+<img width="938" height="658" alt="image" src="https://github.com/user-attachments/assets/4511cf16-ad5b-4436-ba39-945e5555ddc7" />
+
+<img width="1503" height="718" alt="image" src="https://github.com/user-attachments/assets/7af44647-b894-42dd-bb54-3e0df512a0b5" />
+
+
+
 ## Live Demo
 
 - Frontend (Vercel): https://plsp-neon.vercel.app/
@@ -235,3 +241,4 @@ sncast ... deploy --class-hash <UNLOCK_VERIFIER_CLASS_HASH>
 
 - Open an issue in this repo.
 - Ping `@Culper` in the hackathon Discord.
+
