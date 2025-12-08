@@ -39,7 +39,7 @@ pub mod spSTRK {
     const MERKLE_ROOT_HISTORY_SIZE: u32 = 32;
 
     // ====================================
-    // Privacy Pool Fixed Denomination (Tornado Cash style)
+    // Privacy Pool Fixed Denomination 
     // ====================================
     // Fixed denomination: 10 spSTRK (10 * 10^18 wei)
     const PRIVACY_DENOMINATION: u256 = 10_000000000000000000;
@@ -230,6 +230,8 @@ pub mod spSTRK {
         pending_private_deposits: Map<u256, u256>,
         // Private unlock requests (commitment => unlock_time)
         private_unlock_times: Map<u256, u64>,
+        // Amount of STRK locked per private unlock (nullifier_hash => amount)
+        private_unlock_amounts: Map<u256, u256>,
         #[substorage(v0)]
         erc20: ERC20Component::Storage,
         #[substorage(v0)]
@@ -2010,6 +2012,7 @@ pub mod spSTRK {
         ) -> u256 {
             self.pausable.assert_not_paused();
             assert(self.privacy_enabled.read(), 'Privacy not enabled');
+            self.reentrancy_guard.start();
             
             let caller = get_caller_address();
             
@@ -2031,13 +2034,7 @@ pub mod spSTRK {
             
             // Update accounting (use actual strk_amount received)
             self.total_pooled_STRK.write(self.total_pooled_STRK.read() + strk_amount);
-            
-            // Lock exactly PRIVACY_DENOMINATION worth of STRK
-            let locked_strk = self._sp_strk_to_strk(PRIVACY_DENOMINATION);
-            self.total_locked_in_unlocks.write(
-                self.total_locked_in_unlocks.read() + locked_strk
-            );
-            
+
             // Mint exactly PRIVACY_DENOMINATION spSTRK to contract (fixed amount)
             // Any excess STRK stays in pool, benefiting all spSTRK holders
             self.erc20.mint(get_contract_address(), PRIVACY_DENOMINATION);
@@ -2053,6 +2050,8 @@ pub mod spSTRK {
             
             // Auto-delegate to validator
             self._auto_delegate_to_validator();
+
+            self.reentrancy_guard.end();
 
             commitment
         }
@@ -2082,6 +2081,7 @@ pub mod spSTRK {
         ) {
             self.pausable.assert_not_paused();
             assert(self.privacy_enabled.read(), 'Privacy not enabled');
+            self.reentrancy_guard.start();
             assert(amount >= self.min_stake_amount.read(), Errors::BELOW_MINIMUM_STAKE);
             
             let user = get_caller_address();
@@ -2098,6 +2098,8 @@ pub mod spSTRK {
                 amount,
                 timestamp: get_block_timestamp(),
             });
+            
+            self.reentrancy_guard.end();
         }
         
         /// Step 2: Create private commitment with ZK proof
@@ -2114,6 +2116,7 @@ pub mod spSTRK {
         ) {
             self.pausable.assert_not_paused();
             assert(self.privacy_enabled.read(), 'Privacy not enabled');
+            self.reentrancy_guard.start();
             
             // Check pending deposit exists
             let pending = self.pending_private_deposits.entry(strk_amount).read();
@@ -2150,13 +2153,7 @@ pub mod spSTRK {
             
             // Update accounting
             self.total_pooled_STRK.write(self.total_pooled_STRK.read() + strk_amount);
-            
-            // Lock exactly PRIVACY_DENOMINATION worth of STRK
-            let locked_strk = self._sp_strk_to_strk(PRIVACY_DENOMINATION);
-            self.total_locked_in_unlocks.write(
-                self.total_locked_in_unlocks.read() + locked_strk
-            );
-            
+
             // Mint exactly PRIVACY_DENOMINATION spSTRK to contract
             self.erc20.mint(get_contract_address(), PRIVACY_DENOMINATION);
             
@@ -2173,6 +2170,8 @@ pub mod spSTRK {
             
             // Auto-delegate
             self._auto_delegate_to_validator();
+            
+            self.reentrancy_guard.end();
         }
 
         /// Single-step private deposit (no front-running risk)
@@ -2187,6 +2186,7 @@ pub mod spSTRK {
         ) {
             self.pausable.assert_not_paused();
             assert(self.privacy_enabled.read(), 'Privacy not enabled');
+            self.reentrancy_guard.start();
             
             let caller = get_caller_address();
             
@@ -2205,13 +2205,7 @@ pub mod spSTRK {
             
             // Update accounting (use actual strk_amount received)
             self.total_pooled_STRK.write(self.total_pooled_STRK.read() + strk_amount);
-            
-            // Lock exactly PRIVACY_DENOMINATION worth of STRK
-            let locked_strk = self._sp_strk_to_strk(PRIVACY_DENOMINATION);
-            self.total_locked_in_unlocks.write(
-                self.total_locked_in_unlocks.read() + locked_strk
-            );
-            
+
             // Mint exactly PRIVACY_DENOMINATION spSTRK to contract
             self.erc20.mint(get_contract_address(), PRIVACY_DENOMINATION);
             
@@ -2229,6 +2223,8 @@ pub mod spSTRK {
             
             // Auto-delegate to validator
             self._auto_delegate_to_validator();
+            
+            self.reentrancy_guard.end();
         }
 
         /// Stake from bridge with private commitment
@@ -2241,6 +2237,7 @@ pub mod spSTRK {
         ) -> u256 {
             self.pausable.assert_not_paused();
             assert(self.privacy_enabled.read(), 'Privacy not enabled');
+            self.reentrancy_guard.start();
             
             // Only the authorized bridge can call this
             let caller = get_caller_address();
@@ -2269,12 +2266,6 @@ pub mod spSTRK {
             // Update accounting (use actual strk_amount received)
             self.total_pooled_STRK.write(self.total_pooled_STRK.read() + strk_amount);
             
-            // Lock exactly PRIVACY_DENOMINATION worth of STRK
-            let locked_strk = self._sp_strk_to_strk(PRIVACY_DENOMINATION);
-            self.total_locked_in_unlocks.write(
-                self.total_locked_in_unlocks.read() + locked_strk
-            );
-            
             // Mint exactly PRIVACY_DENOMINATION spSTRK to contract (fixed amount)
             // Any excess STRK stays in pool, benefiting all spSTRK holders
             self.erc20.mint(get_contract_address(), PRIVACY_DENOMINATION);
@@ -2290,6 +2281,8 @@ pub mod spSTRK {
             // Auto-delegate to validator
             self._auto_delegate_to_validator();
             
+            self.reentrancy_guard.end();
+
             commitment
         }
 
@@ -2303,6 +2296,7 @@ pub mod spSTRK {
         ) {
             self.pausable.assert_not_paused();
             assert(self.privacy_enabled.read(), 'Privacy not enabled');
+            self.reentrancy_guard.start();
             
             // Verify nullifier not already used (prevents double-spend)
             assert(!self.used_nullifiers.entry(nullifier).read(), 'Nullifier already used');
@@ -2338,6 +2332,8 @@ pub mod spSTRK {
                 recipient,
                 amount: PRIVACY_DENOMINATION
             }));
+            
+            self.reentrancy_guard.end();
         }
 
         /// Request private unlock - starts time lock for private STRK withdrawal
@@ -2349,6 +2345,7 @@ pub mod spSTRK {
         ) {
             self.pausable.assert_not_paused();
             assert(self.privacy_enabled.read(), 'Privacy not enabled');
+            self.reentrancy_guard.start();
             
             // Verify this nullifier_hash hasn't already requested unlock
             assert(self.private_unlock_times.entry(nullifier_hash).read() == 0, 'Already requested');
@@ -2372,6 +2369,14 @@ pub mod spSTRK {
             assert(computed_hash_u256 == nullifier_hash, 'Nullifier hash mismatch');
             
             self._assert_known_root(proof_root);
+
+            // Calculate and lock STRK amount for this fixed denomination note
+            let strk_amount = self._sp_strk_to_strk(PRIVACY_DENOMINATION);
+            assert(strk_amount > 0, Errors::INVALID_STRK_AMOUNT);
+            self
+                .total_locked_in_unlocks
+                .write(self.total_locked_in_unlocks.read() + strk_amount);
+            self.private_unlock_amounts.entry(nullifier_hash).write(strk_amount);
             
             // Set unlock time (current time + unlock period)
             let unlock_time = get_block_timestamp() + self.unlock_period.read();
@@ -2384,6 +2389,8 @@ pub mod spSTRK {
                 unlock_time,
                 expiry_time: unlock_time + self.claim_window.read()
             });
+            
+            self.reentrancy_guard.end();
         }
 
         /// Complete private withdrawal after unlock period
@@ -2430,8 +2437,9 @@ pub mod spSTRK {
             // SECURITY: Double-check circuit enforced fixed denomination
             assert(proof_shares == PRIVACY_DENOMINATION, 'Invalid denomination');
             
-            // Calculate STRK amount from PRIVACY_DENOMINATION at current exchange rate
-            let strk_amount = self._sp_strk_to_strk(PRIVACY_DENOMINATION);
+            // Load locked STRK amount for this nullifier_hash
+            let strk_amount = self.private_unlock_amounts.entry(nullifier_hash).read();
+            assert(strk_amount > 0, 'Unlock amount not set');
             
             // Mark nullifier as used
             self.used_nullifiers.entry(nullifier).write(true);
@@ -2444,6 +2452,9 @@ pub mod spSTRK {
             self.total_locked_in_unlocks.write(
                 self.total_locked_in_unlocks.read() - strk_amount
             );
+            // Clear stored unlock data
+            self.private_unlock_amounts.entry(nullifier_hash).write(0);
+            self.private_unlock_times.entry(nullifier_hash).write(0_u64);
             
             // Transfer STRK to recipient
             self._strk_transfer(get_contract_address(), recipient, strk_amount);
