@@ -233,6 +233,7 @@ sncast ... deploy --class-hash <UNLOCK_VERIFIER_CLASS_HASH>
 - [x] Integrate Noir circuits for private withdrawals of spSTRK/STRK.
 - [x] Build frontend UI for privacy staking.
 - [ ] Add an opt-in feature that attaches encrypted, serialized note data to a tx when a user wants an auditable option for their own compliance needs
+- [ ] Move the Merkle indexer and relayer to an MPC/threshold signer setup for a trust-minimized, decentralized protocol.
 
 ## Contact / Support
 
